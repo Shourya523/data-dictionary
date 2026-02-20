@@ -69,7 +69,7 @@ const LandingNavbar = () => {
             </>
           ) : (
             <Button size="sm" asChild>
-              <Link href="/dashboard" className="flex items-center justify-center w-full h-full">
+              <Link href="/dashboard" className="flex items-center justify-center w-full h-8">
                 Go to Dashboard
               </Link>
             </Button>
