@@ -36,14 +36,17 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           collapsed ? "w-14" : "w-56"
         } bg-sidebar border-r border-sidebar-border flex flex-col transition-all duration-200 shrink-0`}
       >
-        <div className="flex items-center gap-2.5 h-14 px-4 border-b border-sidebar-border">
-          <Database className="w-4 h-4 text-primary shrink-0" />
-          {!collapsed && (
-            <span className="text-sm font-semibold text-sidebar-accent-foreground">
-              DataLens AI
-            </span>
-          )}
-        </div>
+<Link 
+  href="/" 
+  className="flex items-center gap-2.5 h-14 px-4 border-b border-sidebar-border cursor-pointer select-none"
+>
+  <Database className="w-4 h-4 text-primary shrink-0" />
+  {!collapsed && (
+    <span className="text-sm font-semibold text-sidebar-accent-foreground whitespace-nowrap">
+      DataLens AI
+    </span>
+  )}
+</Link>
 
         <nav className="flex-1 py-3 px-2 space-y-0.5">
           {navItems.map((item) => {
