@@ -5,22 +5,25 @@ import { entities, fields, relationships } from "../db/schema";
 import { eq, inArray } from "drizzle-orm";
 import { getSession } from "../lib/neo4j";
 
+// Define the fallback URI for guest mode
+const FALLBACK_URI = "postgresql://neondb_owner:npg_RurVIE0FdTc1@ep-morning-morning-aiknmhke-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+
 export async function buildGraphForInference(connectionId: string) {
     if (!connectionId) return { success: false, error: "Connection ID required." };
 
     let session;
 
     try {
-        // 1. Fetch Metadata from Relational DB (Drizzle)
+        // Handle guest mode by normalizing the connectionId if needed
+        // or ensure your Relational DB has metadata synced for this specific string ID.
         const dbEntities = await db.select().from(entities).where(eq(entities.connectionId, connectionId));
 
         if (dbEntities.length === 0) {
-            return { success: false, error: "No entities found for this connection." };
+            return { success: false, error: "Please click on 'Sync Tables' first to populate metadata." };
         }
 
         const entityIds = dbEntities.map(e => e.id);
         const dbFields = await db.select().from(fields).where(inArray(fields.entityId, entityIds));
-
         const fieldIds = dbFields.map(f => f.id);
 
         let dbRelationships: any[] = [];
@@ -28,19 +31,12 @@ export async function buildGraphForInference(connectionId: string) {
             dbRelationships = await db.select().from(relationships).where(inArray(relationships.sourceFieldId, fieldIds));
         }
 
-        // 2. Map structures for faster lookup
         const fieldEntityMap = new Map();
         dbFields.forEach(f => fieldEntityMap.set(f.id, f.entityId));
 
-        const entityNameMap = new Map();
-        dbEntities.forEach(e => entityNameMap.set(e.id, e.name));
-
-
-        // 3. Connect to Neo4j and begin construction
         session = getSession();
 
         await session.executeWrite(async (tx: any) => {
-            // A. Safely clear old nodes for this specific connection ONLY
             await tx.run(`
                 MATCH (n:Entity {connectionId: $connectionId})
                 DETACH DELETE n
@@ -51,8 +47,6 @@ export async function buildGraphForInference(connectionId: string) {
                 DETACH DELETE f
             `, { connectionId });
 
-
-            // B. Create Entity Nodes
             for (const entity of dbEntities) {
                 await tx.run(`
                     MERGE (e:Entity {id: $id})
@@ -64,7 +58,6 @@ export async function buildGraphForInference(connectionId: string) {
                 });
             }
 
-            // C. Create Field Nodes & Connect (Entity)-[:HAS_FIELD]->(Field)
             for (const field of dbFields) {
                 const isForeignKey = dbRelationships.some((r: any) => r.sourceFieldId === field.id);
 
@@ -86,7 +79,6 @@ export async function buildGraphForInference(connectionId: string) {
                     connectionId
                 });
 
-                // Connect parent entity -> field
                 await tx.run(`
                     MATCH (e:Entity {id: $entityId})
                     MATCH (f:Field {id: $fieldId})
@@ -97,12 +89,7 @@ export async function buildGraphForInference(connectionId: string) {
                 });
             }
 
-
-            // D. Create Relationships (Field)-[:REFERENCES_FIELD]->(Field)
-            //    and abstract (Entity)-[:REFERENCES]->(Entity)
             for (const rel of dbRelationships) {
-
-                // Field to Field
                 await tx.run(`
                     MATCH (source:Field {id: $sourceId})
                     MATCH (target:Field {id: $targetId})
@@ -112,7 +99,6 @@ export async function buildGraphForInference(connectionId: string) {
                     targetId: rel.targetFieldId
                 });
 
-                // Entity to Entity (Abstracted Summary)
                 const sourceEntityId = fieldEntityMap.get(rel.sourceFieldId);
                 const targetEntityId = fieldEntityMap.get(rel.targetFieldId);
 
@@ -129,7 +115,7 @@ export async function buildGraphForInference(connectionId: string) {
             }
         });
 
-        return { success: true, message: `Successfully pushed ${dbEntities.length} entities and ${dbFields.length} fields to Neo4j Graph.` };
+        return { success: true, message: `Successfully pushed ${dbEntities.length} entities to Neo4j.` };
 
     } catch (error: any) {
         console.error("Graph build failed:", error);
