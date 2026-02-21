@@ -2,21 +2,20 @@
 
 import Link from "next/link";
 import { Button } from "../ui/button";
-import { Database, Menu, X } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Database, Menu, X, LogOut } from "lucide-react";
+import { useState } from "react";
 import { authClient } from "./auth";
 
 const LandingNavbar = () => {
   const [open, setOpen] = useState(false);
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: session, isPending } = authClient.useSession();
 
   const handleGoogleSignIn = async () => {
     try {
       await authClient.signIn.social({
         provider: "google",
         callbackURL: "/dashboard",
-        newUserCallbackURL: "/dashboard",
+        newUserCallbackURL: "/connect",
         errorCallbackURL: "/",
       });
     } catch (error) {
@@ -24,61 +23,82 @@ const LandingNavbar = () => {
     }
   };
 
-  useEffect(() => {
-    authClient.getSession().then(({ data }) => {
-      if (data?.session) {
-        setUser(data.session.user);
-      }
-      setLoading(false);
+  const handleSignOut = async () => {
+    await authClient.signOut({
+      fetchOptions: {
+        onSuccess: () => {
+          window.location.href = "/";
+        },
+      },
     });
-  }, []);
+  };
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border/50">
-      <div className="container mx-auto flex items-center justify-between h-14 px-6">
+      <div className="container mx-auto flex items-center h-14 px-6 relative">
+        {/* Left: Logo */}
         <Link href="/" className="flex items-center gap-2.5 font-semibold text-base tracking-tight cursor-pointer select-none">
           <Database className="w-5 h-5 text-primary" />
           DataLens AI
         </Link>
 
-        {/* Desktop Nav Links */}
-        <div className="hidden md:flex items-center gap-8 text-sm text-muted-foreground">
+        {/* Center: Nav Links (Hidden on mobile) */}
+        {/* We use absolute centering so these stay in the middle regardless of button width on the right */}
+        <div className="hidden md:flex absolute left-1/2 -translate-x-1/2 items-center gap-8 text-sm text-muted-foreground">
           <a href="#features" className="hover:text-foreground transition-colors cursor-pointer">Features</a>
           <a href="#how-it-works" className="hover:text-foreground transition-colors cursor-pointer">How It Works</a>
           <a href="#pricing" className="hover:text-foreground transition-colors cursor-pointer">Pricing</a>
         </div>
 
-        {/* Auth Actions */}
-        <div className="hidden md:flex items-center gap-3">
-          {!loading && !user ? (
+        {/* Right: Auth Actions */}
+        <div className="hidden md:flex items-center gap-3 ml-auto">
+          {isPending ? (
+            <div className="h-8 w-20 bg-muted animate-pulse rounded" />
+          ) : !session ? (
             <>
-              <Button 
-                variant="ghost" 
-                size="sm" 
+              <Button
+                variant="ghost"
+                size="sm"
                 className="text-muted-foreground"
                 onClick={handleGoogleSignIn}
               >
                 Log In
               </Button>
-              <Button 
-                size="sm" 
+              <Button
+                size="sm"
                 onClick={handleGoogleSignIn}
               >
                 Start Free
               </Button>
             </>
           ) : (
-            <Button size="sm" asChild>
-              <Link href="/dashboard" className="flex items-center justify-center w-full h-8">
-                Go to Dashboard
-              </Link>
-            </Button>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium mr-2">
+                Hi, {session.user.name.split(' ')[0]}!
+              </span>
+
+              <Button size="sm" asChild>
+                <Link href="/dashboard">
+                  Go to Dashboard
+                </Link>
+              </Button>
+
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                onClick={handleSignOut}
+              >
+                <LogOut className="w-4 h-4 mr-2" />
+                Log Out
+              </Button>
+            </div>
           )}
         </div>
 
         {/* Mobile Toggle */}
         <button
-          className="md:hidden text-muted-foreground cursor-pointer outline-none"
+          className="md:hidden ml-auto text-muted-foreground cursor-pointer outline-none"
           onClick={() => setOpen(!open)}
         >
           {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -88,19 +108,19 @@ const LandingNavbar = () => {
       {/* Mobile Menu */}
       {open && (
         <div className="md:hidden border-t border-border bg-background p-6 space-y-4">
-          <a href="#features" className="block text-sm text-muted-foreground hover:text-foreground cursor-pointer">Features</a>
-          <a href="#how-it-works" className="block text-sm text-muted-foreground hover:text-foreground cursor-pointer">How It Works</a>
-          <a href="#pricing" className="block text-sm text-muted-foreground hover:text-foreground cursor-pointer">Pricing</a>
+          <a href="#features" className="block text-sm text-muted-foreground">Features</a>
+          <a href="#how-it-works" className="block text-sm text-muted-foreground">How It Works</a>
+          <a href="#pricing" className="block text-sm text-muted-foreground">Pricing</a>
 
-          {!user ? (
+          {!session ? (
             <Button size="sm" className="w-full" onClick={handleGoogleSignIn}>
               Start Free
             </Button>
           ) : (
-            <Button size="sm" className="w-full" asChild>
-              <Link href="/dashboard" className="flex items-center justify-center w-full h-full">
-                Go to Dashboard
-              </Link>
+            <Button size="sm" className="w-full" asChild onClick={handleSignOut}>
+               <div className="flex items-center justify-center">
+                <LogOut className="w-4 h-4 mr-2" /> Log Out
+               </div>
             </Button>
           )}
         </div>
