@@ -62,15 +62,35 @@ export function DocumentationTab({ connectionId, userId }: { connectionId: strin
     }
 
     return (
-        <div className="flex flex-col gap-6 mt-6">
+        <div className="flex flex-col gap-8 mt-6 pb-20">
             {docs.map((doc, idx) => (
                 <div key={idx} className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
-                    <div className="flex items-center gap-3 px-6 py-4 bg-muted/40 border-b border-border">
-                        <Database className="w-4 h-4 text-primary" />
-                        <h2 className="font-bold text-lg font-mono">{doc.tableName}</h2>
+                    <div className="flex items-center gap-3 px-6 py-4 bg-muted/20 border-b border-border">
+                        <Database className="w-5 h-5 text-primary" />
+                        <h2 className="font-semibold text-lg text-card-foreground tracking-tight">{doc.tableName}</h2>
                     </div>
-                    <div className="p-6 prose prose-sm dark:prose-invert max-w-none prose-pre:bg-muted/50 prose-pre:border prose-pre:border-border">
-                        <ReactMarkdown>
+                    <div className="p-6 sm:p-8">
+                        <ReactMarkdown
+                            components={{
+                                h1: ({ node, ...props }) => <h1 className="text-2xl font-bold tracking-tight mb-6 mt-2" {...props} />,
+                                h2: ({ node, ...props }) => <h2 className="text-xl font-semibold tracking-tight first:mt-0 mt-10 mb-4 pb-2 border-b border-border/50" {...props} />,
+                                h3: ({ node, ...props }) => <h3 className="text-lg font-semibold tracking-tight mt-8 mb-3" {...props} />,
+                                p: ({ node, ...props }) => <p className="leading-7 text-muted-foreground mb-4" {...props} />,
+                                ul: ({ node, ...props }) => <ul className="my-4 ml-6 list-disc [&>li]:mt-2 text-muted-foreground" {...props} />,
+                                li: ({ node, ...props }) => <li className="leading-7" {...props} />,
+                                code: ({ node, ...props }) => <code className="relative rounded bg-muted/50 px-[0.3rem] py-[0.2rem] font-mono text-sm text-foreground/80 border border-border/50" {...props} />,
+                                table: ({ node, ...props }) => (
+                                    <div className="my-6 w-full overflow-y-auto rounded-lg border border-border">
+                                        <table className="w-full text-sm text-left border-collapse" {...props} />
+                                    </div>
+                                ),
+                                thead: ({ node, ...props }) => <thead className="bg-muted/40 text-muted-foreground uppercase text-xs" {...props} />,
+                                th: ({ node, ...props }) => <th className="px-6 py-4 font-semibold border-b border-border" {...props} />,
+                                tbody: ({ node, ...props }) => <tbody className="divide-y divide-border/50" {...props} />,
+                                td: ({ node, ...props }) => <td className="px-6 py-4 text-muted-foreground" {...props} />,
+                                strong: ({ node, ...props }) => <strong className="font-semibold text-foreground" {...props} />,
+                            }}
+                        >
                             {doc.content}
                         </ReactMarkdown>
                     </div>

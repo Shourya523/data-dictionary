@@ -39,7 +39,67 @@ export async function syncAIDocumentation(connectionId: string) {
         // 2. Initialize Neo4j Session for specific Relationship Queries
         session = getSession();
 
-        // 4. Iterate over each entity and build Markdown directly
+        // 3. Setup Gemini Model instance with strict parameters
+        const model = genAI.getGenerativeModel({
+            model: "gemini-2.5-flash",
+            systemInstruction: `You are a senior enterprise data architect and technical documentation expert.
+
+Your task is to generate high-quality, professional database documentation in clean Markdown format.
+
+You are given structured schema JSON describing:
+- table name
+- fields (type, nullable, primary key, foreign key)
+- relationships (foreign key mappings)
+
+Follow these strict formatting rules:
+
+1. Use proper Markdown syntax only.
+2. Do NOT use ASCII separators like "|------|----|".
+3. Use properly formatted Markdown tables.
+4. If composite primary keys exist, clearly mention them in a separate section.
+5. Keep descriptions concise and professional.
+6. Do NOT invent fields or relationships.
+7. Do NOT repeat redundant information.
+8. Do NOT include implementation commentary.
+9. Output Markdown only.
+
+Documentation Structure:
+
+# {Table Name}
+
+## Overview
+Short professional business-level explanation of what the table represents.
+
+## Schema Summary
+- Total Fields: X
+- Primary Keys: ...
+- Foreign Keys: ...
+- Relationships: ...
+
+## Fields
+
+| Column | Type | Nullable | Key | Description |
+|--------|------|----------|-----|-------------|
+
+- If composite primary key exists, explicitly mention:
+  "This table uses a composite primary key consisting of (...)."
+
+## Relationships
+
+Clearly list:
+- \`column_name\` → \`referenced_table.referenced_column\`
+- Explain relationship type (one-to-many / many-to-many if inferable)
+
+Tone:
+- Clean
+- Enterprise
+- Technical
+- Precise
+
+Return Markdown only.`
+        });
+
+        // 4. Iterate over each entity and build JSON payload
         for (const entity of dbEntities) {
             const tableFields = dbFields.filter(f => f.entityId === entity.id);
 
@@ -69,35 +129,32 @@ export async function syncAIDocumentation(connectionId: string) {
                 }
             });
 
-            // Construct locally generated Markdown Docs
-            let markdownContent = `# Table: \`${entity.name}\`\n\n`;
-            markdownContent += `## Table Overview\n\nThis table represents the \`${entity.name}\` entity in the database architecture.\n\n`;
+            // Construct exact JSON syntax requested
+            const payload = {
+                table: entity.name,
+                fields: tableFields.map(f => ({
+                    name: f.name,
+                    type: f.type,
+                    nullable: f.isNullable,
+                    is_primary_key: f.isPrimaryKey,
+                    is_foreign_key: parsedRelationships.some(r => r.field === f.name)
+                })),
+                relationships: parsedRelationships
+            };
 
-            markdownContent += `## Fields\n\n`;
-            markdownContent += `| Field Name | Type | PK/FK | Nullable | Description |\n`;
-            markdownContent += `| :--- | :--- | :--- | :--- | :--- |\n`;
+            console.log(`[RAG Backend] Querying Gemini for documentation of ${entity.name}`);
 
-            for (const f of tableFields) {
-                const isFk = parsedRelationships.some(r => r.field === f.name);
-                let keys = [];
-                if (f.isPrimaryKey) keys.push("PK");
-                if (isFk) keys.push("FK");
+            // 5. Query LLM to translate JSON to Documentation Markdown
+            const prompt = `Generate documentation for the following database table schema object:\n\n${JSON.stringify(payload, null, 2)}`;
+            const result = await model.generateContent(prompt);
+            let markdownContent = result.response.text();
 
-                markdownContent += `| \`${f.name}\` | \`${f.type}\` | ${keys.join(", ")} | ${f.isNullable ? "Yes" : "No"} | Standard field for ${f.name} |\n`;
-            }
-
-            markdownContent += `\n## Relationships\n\n`;
-            if (parsedRelationships.length > 0) {
-                parsedRelationships.forEach(r => {
-                    markdownContent += `- **\`${r.field}\`** references \`${r.references_table}.${r.references_field}\`\n`;
-                });
-            } else {
-                markdownContent += `No foreign key relationships detected.\n`;
-            }
+            // Stripping any LLM code block wrappers just in case
+            markdownContent = markdownContent.replace(/^```markdown\n/, "").replace(/\n```$/, "");
 
             console.log(`[RAG Backend] Upserting mapped documentation for ${entity.name}`);
 
-            // 5. Save the Markdown to schemaKnowledge table deterministically
+            // 6. Save the Markdown to schemaKnowledge table deterministically
             await db
                 .insert(schemaKnowledge)
                 .values({
