@@ -6,7 +6,7 @@ import { getUserConnections, runCustomQuery } from "../../../actions/db";
 import { authClient } from "@/src/components/landing/auth";
 import { Button } from "../../../components/ui/button";
 import { Card } from "../../../components/ui/card";
-import { Loader2, Play, Table as TableIcon, AlertCircle, FileJson, Database } from "lucide-react";
+import { Loader2, Play, Table as TableIcon, AlertCircle, FileJson, Database, ShieldAlert } from "lucide-react";
 
 const DEMO_ID = "demo-neon-db";
 
@@ -14,7 +14,7 @@ export default function QueryPage() {
   const { data: session } = authClient.useSession();
   const [connections, setConnections] = useState<any[]>([]);
   const [selectedConn, setSelectedConn] = useState(DEMO_ID);
-const [sqlText, setSqlText] = useState(`SELECT 
+  const [sqlText, setSqlText] = useState(`SELECT 
     oi.order_id,
     oi.product_id,
     oi.seller_id,
@@ -49,18 +49,25 @@ LIMIT 10;`);
   }, [session]);
 
   const execute = async () => {
-    if (!sqlText.trim()) return;
-    
+    const trimmedSql = sqlText.trim();
+    if (!trimmedSql) return;
+
+    const readOnlyRegex = /^\s*(SELECT|WITH|SHOW|DESCRIBE|EXPLAIN)\b/i;
+    const isReadOnly = readOnlyRegex.test(trimmedSql);
+
+    if (!isReadOnly) {
+      setError("Security Policy: Only read-only queries (SELECT, WITH, SHOW) are permitted in the SQL Lab.");
+      return;
+    }
+
     setIsRunning(true);
     setError(null);
-    setResults([]); 
+    setResults([]);
 
     try {
-      // Pass the userId (even if undefined for guests) to trigger demo fallback
-      const res = await runCustomQuery(selectedConn, session?.user?.id, sqlText);
-      
+      const res = await runCustomQuery(selectedConn, session?.user?.id, trimmedSql);
+
       if (res.success) {
-        // CASTING FIX: Tell TypeScript this is a standard array
         const data = (res.data as any[]) || [];
         setResults(data);
         if (data.length === 0) setError("Query successful, but no rows were returned.");
@@ -82,17 +89,17 @@ LIMIT 10;`);
             <h1 className="text-2xl font-bold tracking-tight">SQL Lab</h1>
             <p className="text-sm text-muted-foreground">Run direct queries against your connected databases.</p>
           </div>
-          
+
           <div className="flex items-center gap-3">
-            <select 
+            <select
               className="h-10 w-64 rounded-md border border-input bg-background px-3 text-sm focus:ring-2 focus:ring-primary outline-none"
               value={selectedConn}
               onChange={(e) => setSelectedConn(e.target.value)}
             >
               {connections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
-            
-            <Button 
+
+            <Button
               onClick={execute}
               disabled={isRunning}
               className="min-w-[120px] shadow-lg shadow-primary/20"
@@ -124,13 +131,13 @@ LIMIT 10;`);
                 Query Results {results.length > 0 && `(${results.length})`}
               </span>
             </div>
-            
+
             <div className="flex-1 overflow-auto">
               {error ? (
                 <div className="m-6 p-4 bg-destructive/5 border border-destructive/20 rounded-xl flex items-start gap-3 text-destructive animate-in fade-in zoom-in-95">
-                  <AlertCircle className="w-5 h-5 mt-0.5 shrink-0" />
+                  <ShieldAlert className="w-5 h-5 mt-0.5 shrink-0" />
                   <div className="space-y-1">
-                    <p className="text-sm font-bold">Execution Error</p>
+                    <p className="text-sm font-bold">Access Denied</p>
                     <p className="text-xs font-mono opacity-80">{error}</p>
                   </div>
                 </div>
@@ -151,9 +158,9 @@ LIMIT 10;`);
                         {Object.values(row).map((val: any, j) => (
                           <td key={j} className="p-3 text-[11px] font-mono truncate max-w-[240px] text-foreground/80 group-hover:text-foreground">
                             {val === null ? (
-                                <span className="text-muted-foreground/40 italic">null</span>
+                              <span className="text-muted-foreground/40 italic">null</span>
                             ) : (
-                                val.toString()
+                              val.toString()
                             )}
                           </td>
                         ))}
@@ -168,8 +175,8 @@ LIMIT 10;`);
                 </div>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center">
-                   <Loader2 className="w-10 h-10 animate-spin text-primary/40" />
-                   <p className="text-xs mt-4 text-muted-foreground animate-pulse tracking-widest uppercase">Executing...</p>
+                  <Loader2 className="w-10 h-10 animate-spin text-primary/40" />
+                  <p className="text-xs mt-4 text-muted-foreground animate-pulse tracking-widest uppercase">Executing...</p>
                 </div>
               )}
             </div>
