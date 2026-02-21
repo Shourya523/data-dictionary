@@ -81,21 +81,36 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
     loadMetadata();
   }, [id, session, authLoading]);
 
-  // ACTION 1: Sync AI Knowledge (Vector/Qdrant)
+  // ACTION 1: Sync AI Knowledge (Documentation)
   const handleSyncAI = async () => {
     if (!session?.user?.id) return;
     setIsSyncingAI(true);
+    
+    // dynamically import toast if not natively globally available, or just use basic alert/log
+    const { toast } = await import("sonner");
+    toast.info("Starting AI Documentation Sync...");
+
     try {
+      console.log("[Sync AI Action] Fetching connection:", id);
       const connString = await getConnectionStringById(id, session.user.id);
       if (!connString) throw new Error("Connection string missing");
 
-      const result = await indexRemoteDatabase(id, connString);
+      // Dynamically importing the action
+      console.log("[Sync AI Action] Triggering syncAIDocumentation backend pipeline");
+      const { syncAIDocumentation } = await import('../../../../actions/rag');
+      const result = await syncAIDocumentation(id);
+      
       if (result.success) {
-        console.log("AI Index synced successfully!");
+        console.log("AI Documentation synced successfully!");
+        toast.success(result.message || "AI Documentation synced successfully!");
       } else {
-        setError(result.error || "Failed to sync AI knowledge");
+        console.error("Failed to sync AI documentation:", result.error);
+        toast.error(result.error || "Failed to sync AI documentation");
+        setError(result.error);
       }
     } catch (err: any) {
+      console.error("Frontend exception during Sync AI:", err);
+      toast.error(err.message || "An unexpected error occurred during AI Sync");
       setError(err.message);
     } finally {
       setIsSyncingAI(false);

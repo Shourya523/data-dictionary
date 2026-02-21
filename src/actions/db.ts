@@ -306,13 +306,13 @@ export const getSchemaDocumentation = async (connectionId: string, userId: strin
     const { schemaKnowledge } = await import('../db/schema');
     const docs = await db
       .select({
-        tableName: schemaKnowledge.tableName,
-        content: schemaKnowledge.content,
+        tableName: schemaKnowledge.entityName,
+        content: schemaKnowledge.markdownContent,
         updatedAt: schemaKnowledge.updatedAt
       })
       .from(schemaKnowledge)
       .where(eq(schemaKnowledge.connectionId, connectionId))
-      .orderBy(schemaKnowledge.tableName);
+      .orderBy(schemaKnowledge.entityName);
 
     return { success: true, data: docs };
   } catch (error: any) {
