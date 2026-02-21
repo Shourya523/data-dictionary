@@ -2,13 +2,11 @@
 
 import { useEffect, useState, use } from "react";
 import DashboardLayout from "../../../../components/dashboard/DashboardLayout";
-import { Table2, Eye, Loader2, AlertCircle, Database, ArrowLeft, RefreshCw } from "lucide-react";
+import { Table2, Eye, Loader2, AlertCircle, Database, ArrowLeft, RefreshCw, Sparkles, Check } from "lucide-react";
 import Link from "next/link";
 import { getDatabaseMetadata, getConnectionStringById } from "../../../../actions/db";
-import { indexRemoteDatabase } from "../../../../actions/rag";
 import { Button } from "@/src/components/ui/button";
 import { authClient } from "@/src/components/landing/auth";
-import { ChatDrawer } from "@/src/components/chatDrawer";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/src/components/ui/tabs";
 import { DocumentationTab } from "@/src/components/dashboard/DocumentationTab";
 import { ChatTab } from "@/src/components/dashboard/ChatTab";
@@ -29,8 +27,7 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  const [isSyncingAI, setIsSyncingAI] = useState(false);
-  const [isSyncingTables, setIsSyncingTables] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing-tables' | 'syncing-ai' | 'completed'>('idle');
   const [isGeneratingGraph, setIsGeneratingGraph] = useState(false);
 
   const getEffectiveUri = async () => {
@@ -43,6 +40,7 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
     if (authLoading) return;
 
     try {
+      setLoading(true);
       const connString = await getEffectiveUri();
       const result = await getDatabaseMetadata(connString);
 
@@ -78,51 +76,18 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
     loadMetadata();
   }, [id, session, authLoading]);
 
-  // ACTION 1: Sync AI Knowledge (Documentation)
-  const handleSyncAI = async () => {
-    setIsSyncingAI(true);
-    
+  const handleCombinedSync = async () => {
     const { toast } = await import("sonner");
-    toast.info("Starting AI Documentation Sync...");
-
+    setSyncStatus('syncing-tables');
+    
     try {
-      console.log("[Sync AI Action] Fetching connection:", id);
-      const connString = await getConnectionStringById(id, session?.user?.id as string);
-      
-      if (!connString) throw new Error("Connection string missing");
-
-      // Dynamically importing the action
-      console.log("[Sync AI Action] Triggering syncAIDocumentation backend pipeline");
-      const { syncAIDocumentation } = await import('../../../../actions/rag');
-      const result = await syncAIDocumentation(id);
-      
-      if (result.success) {
-        console.log("AI Documentation synced successfully!");
-        toast.success(result.message || "AI Documentation synced successfully!");
-      } else {
-        console.error("Failed to sync AI documentation:", result.error);
-        toast.error(result.error || "Failed to sync AI documentation");
-        setError(result.error);
-      }
-    } catch (err: any) {
-      console.error("Frontend exception during Sync AI:", err);
-      toast.error(err.message || "An unexpected error occurred during AI Sync");
-      setError(err.message);
-    } finally {
-      setIsSyncingAI(false);
-    }
-  };
-
-  const handleSyncTables = async () => {
-    setIsSyncingTables(true);
-    try {
+      // 1. Sync Table Metadata
       const connString = await getEffectiveUri();
-      const result = await getDatabaseMetadata(connString);
-      if (!result.success || !result.data) throw new Error("Failed to fetch fresh metadata");
+      const metaResult = await getDatabaseMetadata(connString);
+      if (!metaResult.success || !metaResult.data) throw new Error("Failed to fetch fresh metadata");
 
       const { syncTableMetadata } = await import('../../../../actions/metadata');
-      
-      const organized = result.data.schema.reduce((acc: any, curr: any) => {
+      const organized = metaResult.data.schema.reduce((acc: any, curr: any) => {
         if (!acc[curr.table_name]) {
           acc[curr.table_name] = { name: curr.table_name, columns: [] };
         }
@@ -130,14 +95,24 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
         return acc;
       }, {});
 
-      const syncResult = await syncTableMetadata(id, Object.values(organized));
-      if (!syncResult.success) throw new Error(syncResult.error || "Failed to securely sync metadata");
+      const tableSync = await syncTableMetadata(id, Object.values(organized));
+      if (!tableSync.success) throw new Error(tableSync.error || "Table sync failed");
+
+      // 2. Sync AI Documentation
+      setSyncStatus('syncing-ai');
+      const { syncAIDocumentation } = await import('../../../../actions/rag');
+      const aiSync = await syncAIDocumentation(id);
       
+      if (!aiSync.success) throw new Error(aiSync.error || "AI sync failed");
+
+      setSyncStatus('completed');
+      toast.success("Database and AI successfully synchronized");
       await loadMetadata();
+
+      setTimeout(() => setSyncStatus('idle'), 3000);
     } catch (err: any) {
-      setError(err.message || "An error occurred during sync");
-    } finally {
-      setIsSyncingTables(false);
+      toast.error(err.message || "Synchronization failed");
+      setSyncStatus('idle');
     }
   };
 
@@ -169,7 +144,7 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
             <h1 className="text-2xl font-bold tracking-tight">Database Schema</h1>
             <p className="text-sm text-muted-foreground mt-1 text-wrap max-w-md">
               Live inspection for <span className="font-mono text-primary text-xs bg-primary/5 px-1.5 py-0.5 rounded">{id}</span>
-              {!session?.user?.id && <span className="ml-2 text-[10px] bg-amber-500/10 text-amber-600 px-2 py-0.5 rounded border border-amber-500/20 font-bold uppercase tracking-tighter">Guest Mode</span>}
+              {!session?.user?.id && <span className="ml-2 text-[10px] bg-amber-500/10 text-amber-600 px-2 py-0.5 rounded border border-amber-500/20 font-bold uppercase tracking-tighter">Guest Mode (Demo)</span>}
             </p>
           </div>
 
@@ -178,34 +153,46 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
               onClick={handleGenerateInference} 
               className="gap-2 h-8 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white border-amber-500" 
               variant="outline" 
-              disabled={isGeneratingGraph || isSyncingTables || isSyncingAI || loading}
+              disabled={isGeneratingGraph || syncStatus !== 'idle' || loading}
             >
               {isGeneratingGraph ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
               {isGeneratingGraph ? "GENERATING..." : "BUILD GRAPH"}
             </Button>
 
-            <Button 
-              onClick={handleSyncTables} 
-              className="gap-2 h-8 text-xs font-bold" 
-              variant="outline" 
-              disabled={isSyncingTables || isGeneratingGraph || isSyncingAI || loading}
-            >
-              {isSyncingTables ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-              {isSyncingTables ? "SYNCING..." : "SYNC TABLES"}
-            </Button>
-
             <Button
               variant="default"
               size="sm"
-              onClick={handleSyncAI}
-              disabled={isSyncingAI || isSyncingTables || isGeneratingGraph || loading}
-              className="gap-2 h-8 text-xs font-bold"
+              onClick={handleCombinedSync}
+              disabled={syncStatus !== 'idle' || loading}
+              className={`gap-2 h-8 text-xs font-bold transition-all duration-300 ${
+                syncStatus === 'completed' ? "bg-green-600 hover:bg-green-600" : ""
+              }`}
             >
-              {isSyncingAI ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
-              {isSyncingAI ? "SYNCING AI..." : "SYNC AI"}
+              {syncStatus === 'idle' && (
+                <>
+                  <Sparkles className="w-3.5 h-3.5" />
+                  SYNC AI
+                </>
+              )}
+              {syncStatus === 'syncing-tables' && (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  SYNCING TABLES...
+                </>
+              )}
+              {syncStatus === 'syncing-ai' && (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  INDEXING AI...
+                </>
+              )}
+              {syncStatus === 'completed' && (
+                <>
+                  <Check className="w-3.5 h-3.5" />
+                  COMPLETE
+                </>
+              )}
             </Button>
-
-            <ChatDrawer connectionId={id} connectionName="Database" />
           </div>
         </div>
       </div>
