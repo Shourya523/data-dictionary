@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Loader2, DatabaseZap, Send, Bot, User, AlertCircle } from "lucide-react";
+import { Loader2, DatabaseZap, Send, Bot, User, AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/src/components/ui/button";
 import { Input } from "@/src/components/ui/input";
 import { checkEmbeddingStatus, embedDocumentationData, chatWithSchema } from "@/src/actions/chat";
@@ -123,12 +123,24 @@ export function ChatTab({ connectionId }: { connectionId: string }) {
     return (
         <div className="flex flex-col h-[70vh] bg-card border border-border rounded-xl mt-6 shadow-sm overflow-hidden">
             {/* Header */}
-            <div className="flex items-center gap-3 px-6 py-4 bg-muted/30 border-b border-border">
-                <Bot className="w-5 h-5 text-blue-500" />
-                <div>
-                    <h2 className="font-semibold text-card-foreground text-sm tracking-tight">Compound Architecture AI</h2>
-                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono">Qdrant Vectors + Neo4j Graph API</p>
+            <div className="flex items-center justify-between px-6 py-4 bg-muted/30 border-b border-border">
+                <div className="flex items-center gap-3">
+                    <Bot className="w-5 h-5 text-blue-500" />
+                    <div>
+                        <h2 className="font-semibold text-card-foreground text-sm tracking-tight">Compound Architecture AI</h2>
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono">Qdrant Vectors + Neo4j Graph API</p>
+                    </div>
                 </div>
+                <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={handleEmbed}
+                    disabled={isEmbedding}
+                    className="h-8 text-xs font-semibold text-muted-foreground hover:text-blue-500 transition-colors"
+                >
+                    {isEmbedding ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-2" />}
+                    {isEmbedding ? "Syncing AI..." : "Re-sync Vectors"}
+                </Button>
             </div>
 
             {/* Chat Area */}

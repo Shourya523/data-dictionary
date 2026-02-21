@@ -10,17 +10,12 @@ const qdrant = new QdrantClient({
 });
 
 async function run() {
-    console.log("Creating collection schema_documentation_mxbai...");
+    console.log("Flushing unindexed schema_documentation_mxbai...");
     try {
-        await qdrant.createCollection("schema_documentation_mxbai", {
-            vectors: {
-                size: 1024,
-                distance: "Cosine"
-            }
-        });
-        console.log("Success! Collection created.");
+        await qdrant.deleteCollection("schema_documentation_mxbai");
+        console.log("Success! Collection deleted.");
     } catch (e: any) {
-        console.error("Creation failed:", e);
+        console.error("Flush failed:", e);
     }
 }
 run();

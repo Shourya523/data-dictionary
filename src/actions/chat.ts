@@ -2,7 +2,7 @@
 
 import { Mixedbread } from "@mixedbread/sdk";
 import Groq from "groq-sdk";
-import { qdrant, COLLECTION_NAME } from "../lib/qdrant";
+import { qdrant } from "../lib/qdrant";
 import { v5 as uuidv5 } from "uuid";
 import { db } from "../db";
 import { schemaKnowledge } from "../db/schema";
@@ -13,6 +13,7 @@ const mxbai = new Mixedbread({ apiKey: process.env.MIXEDBREAD_API_KEY! });
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY! });
 
 const NAMESPACE = "0ea2b2f2-67a0-4d67-95f0-9b8a99c9605c"; // Standard UUID namespace
+const CHAT_COLLECTION_NAME = "schema_documentation_mxbai"; // 1024 dimensions collection
 
 export async function checkEmbeddingStatus(connectionId: string) {
     try {
@@ -85,30 +86,38 @@ export async function embedDocumentationData(connectionId: string) {
                 .where(eq(schemaKnowledge.id, doc.id));
         }
 
-        // 4. Batch Upsert to Qdrant with self-healing collection creation
+        // 4. Batch Upsert to Qdrant with explicit collection verification
         try {
-            await qdrant.upsert(COLLECTION_NAME, {
-                wait: true,
-                points: points
-            });
-        } catch (qdrantErr: any) {
-            if (qdrantErr.status === 404) {
-                console.log(`[Chat Backend] Collection ${COLLECTION_NAME} not found. Creating it now...`);
-                await qdrant.createCollection(COLLECTION_NAME, {
+            await qdrant.getCollection(CHAT_COLLECTION_NAME);
+        } catch (checkErr: any) {
+            if (checkErr.status === 404) {
+                console.log(`[Chat Backend] Collection ${CHAT_COLLECTION_NAME} not found. Creating it natively...`);
+                await qdrant.createCollection(CHAT_COLLECTION_NAME, {
                     vectors: {
                         size: 1024,
                         distance: "Cosine"
                     }
                 });
-                console.log(`[Chat Backend] Collection created. Retrying upsert...`);
-                await qdrant.upsert(COLLECTION_NAME, {
-                    wait: true,
-                    points: points
+
+                // CRITICAL: Qdrant requires a payload index to filter by connection_id on vector search
+                console.log(`[Chat Backend] Applying 'connection_id' keyword payload index...`);
+                await qdrant.createPayloadIndex(CHAT_COLLECTION_NAME, {
+                    field_name: "connection_id",
+                    field_schema: "keyword"
                 });
+
+                console.log(`[Chat Backend] Collection created. Yielding 1s to allow Qdrant index initialization...`);
+                await new Promise(res => setTimeout(res, 1000));
             } else {
-                throw qdrantErr;
+                throw checkErr;
             }
         }
+
+        console.log(`[Chat Backend] Upserting vectors into ${CHAT_COLLECTION_NAME}...`);
+        await qdrant.upsert(CHAT_COLLECTION_NAME, {
+            wait: true,
+            points: points
+        });
 
         console.log(`[Chat Backend] Successfully embedded ${points.length} documents into Qdrant.`);
         return { success: true, message: `Successfully embedded ${points.length} documentation tables.` };
@@ -133,13 +142,23 @@ export async function chatWithSchema(query: string, connectionId: string, histor
         const queryVector = embedRes.data[0].embedding as number[];
 
         // 2. Search Qdrant for Top 5 closest schema documentation nodes
-        const searchResult = await qdrant.search(COLLECTION_NAME, {
-            vector: queryVector,
-            filter: {
-                must: [{ key: "connection_id", match: { value: connectionId } }]
-            },
-            limit: 5
-        });
+        let searchResult;
+        try {
+            searchResult = await qdrant.search(CHAT_COLLECTION_NAME, {
+                vector: queryVector,
+                filter: {
+                    must: [{ key: "connection_id", match: { value: connectionId } }]
+                },
+                limit: 5
+            });
+        } catch (searchErr: any) {
+            console.error("Qdrant Search Error Detail:", JSON.stringify(searchErr?.data, null, 2));
+            if (searchErr.status === 404) {
+                console.warn(`[Chat Backend] Caught 404 on search: Collection ${CHAT_COLLECTION_NAME} missing.`);
+                return { success: false, error: "Vector collection missing. Please click 'Re-sync Vectors' in the top right of the Chat window." };
+            }
+            throw searchErr;
+        }
 
         const vectorContextItems = searchResult.map(hit => hit.payload as { entity_name: string, content: string });
         const vectorContextString = vectorContextItems.map(c => c.content).join("\n\n---\n\n");
