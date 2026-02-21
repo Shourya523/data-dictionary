@@ -9,6 +9,8 @@ import { indexRemoteDatabase } from "../../../../actions/rag";
 import { Button } from "@/src/components/ui/button";
 import { authClient } from "@/src/components/landing/auth";
 import { ChatDrawer } from "@/src/components/chatDrawer";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/src/components/ui/tabs";
+import { DocumentationTab } from "@/src/components/dashboard/DocumentationTab";
 
 interface TableInfo {
   name: string;
@@ -204,75 +206,92 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
         </div>
       </div>
 
-      {loading ? (
-        <div className="flex flex-col items-center justify-center py-32 bg-card border border-dashed rounded-xl">
-          <Loader2 className="w-10 h-10 animate-spin text-primary/50 mb-4" />
-          <p className="text-sm font-medium animate-pulse uppercase tracking-widest text-muted-foreground">Mapping Data Objects...</p>
-        </div>
-      ) : error ? (
-        <div className="flex items-center gap-3 p-6 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive mb-6">
-          <AlertCircle className="w-5 h-5" />
-          <p className="text-sm font-medium">{error}</p>
-          <Button variant="ghost" size="sm" onClick={() => setError(null)} className="ml-auto font-bold uppercase text-[10px]">Dismiss</Button>
-        </div>
-      ) : (
-        <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/50">
-                <th className="text-left px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider">Table Name</th>
-                <th className="text-left px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider">Structure Preview</th>
-                <th className="text-left px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider">Live Rows</th>
-                <th className="px-6 py-4"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {tables.map((t) => (
-                <tr key={t.name} className="hover:bg-muted/30 transition-all group">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-secondary rounded-lg group-hover:bg-primary/10 transition-colors">
-                        <Table2 className="w-4 h-4 text-primary" />
-                      </div>
-                      <span className="font-bold font-mono text-sm">{t.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex flex-wrap gap-1.5">
-                      {t.columns.slice(0, 4).map(col => (
-                        <code key={col} className="text-[10px] bg-muted px-2 py-0.5 rounded border border-border/50 font-medium">
-                          {col}
-                        </code>
-                      ))}
-                      {t.columns.length > 4 && (
-                        <span className="text-[10px] text-muted-foreground font-bold self-center">+{t.columns.length - 4}</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 font-mono">
-                    <span className="font-semibold text-foreground">
-                      {t.rowCount.toLocaleString()}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <Link href={`/dashboard/tables/${id}/${t.name}`}>
-                      <Button variant="ghost" size="sm" className="h-8 gap-2 hover:bg-primary hover:text-primary-foreground font-bold text-[10px] uppercase tracking-tighter transition-all">
-                        <Eye className="w-3.5 h-3.5" />
-                        Inspect
-                      </Button>
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {tables.length === 0 && (
-            <div className="py-20 text-center text-muted-foreground italic font-mono text-xs">
-              NO TABLES DETECTED IN TARGET SCHEMA.
+      <Tabs defaultValue="schema" className="w-full">
+        <TabsList className="mb-6 grid w-full grid-cols-2 lg:w-[400px]">
+          <TabsTrigger value="schema" className="font-bold text-xs uppercase tracking-wider">
+            Schema Explorer
+          </TabsTrigger>
+          <TabsTrigger value="documentation" className="font-bold text-xs uppercase tracking-wider">
+            AI Documentation
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="schema" className="mt-0">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-32 bg-card border border-dashed rounded-xl">
+              <Loader2 className="w-10 h-10 animate-spin text-primary/50 mb-4" />
+              <p className="text-sm font-medium animate-pulse uppercase tracking-widest text-muted-foreground">Mapping Data Objects...</p>
+            </div>
+          ) : error ? (
+            <div className="flex items-center gap-3 p-6 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive mb-6">
+              <AlertCircle className="w-5 h-5" />
+              <p className="text-sm font-medium">{error}</p>
+              <Button variant="ghost" size="sm" onClick={() => setError(null)} className="ml-auto font-bold uppercase text-[10px]">Dismiss</Button>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/50">
+                    <th className="text-left px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider">Table Name</th>
+                    <th className="text-left px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider">Structure Preview</th>
+                    <th className="text-left px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider">Live Rows</th>
+                    <th className="px-6 py-4"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {tables.map((t) => (
+                    <tr key={t.name} className="hover:bg-muted/30 transition-all group">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-secondary rounded-lg group-hover:bg-primary/10 transition-colors">
+                            <Table2 className="w-4 h-4 text-primary" />
+                          </div>
+                          <span className="font-bold font-mono text-sm">{t.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-wrap gap-1.5">
+                          {t.columns.slice(0, 4).map(col => (
+                            <code key={col} className="text-[10px] bg-muted px-2 py-0.5 rounded border border-border/50 font-medium">
+                              {col}
+                            </code>
+                          ))}
+                          {t.columns.length > 4 && (
+                            <span className="text-[10px] text-muted-foreground font-bold self-center">+{t.columns.length - 4}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 font-mono">
+                        <span className="font-semibold text-foreground">
+                          {t.rowCount.toLocaleString()}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <Link href={`/dashboard/tables/${id}/${t.name}`}>
+                          <Button variant="ghost" size="sm" className="h-8 gap-2 hover:bg-primary hover:text-primary-foreground font-bold text-[10px] uppercase tracking-tighter transition-all">
+                            <Eye className="w-3.5 h-3.5" />
+                            Inspect
+                          </Button>
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {tables.length === 0 && (
+                <div className="py-20 text-center text-muted-foreground italic font-mono text-xs">
+                  NO TABLES DETECTED IN TARGET SCHEMA.
+                </div>
+              )}
             </div>
           )}
-        </div>
-      )}
+        </TabsContent>
+
+        <TabsContent value="documentation" className="mt-0">
+          <DocumentationTab connectionId={id as string} userId={session?.user?.id as string} />
+        </TabsContent>
+      </Tabs>
     </DashboardLayout>
   );
 };

@@ -294,6 +294,33 @@ export const getConnectionStringById = async (id: string, userId: string) => {
   }
 };
 
+export const getSchemaDocumentation = async (connectionId: string, userId: string) => {
+  try {
+    // 1. First verify the user actually owns this connection for security
+    const connString = await getConnectionStringById(connectionId, userId);
+    if (!connString) {
+      return { success: false, error: "Unauthorized or connection not found." };
+    }
+
+    // 2. Fetch all documentation for this connection
+    const { schemaKnowledge } = await import('../db/schema');
+    const docs = await db
+      .select({
+        tableName: schemaKnowledge.tableName,
+        content: schemaKnowledge.content,
+        updatedAt: schemaKnowledge.updatedAt
+      })
+      .from(schemaKnowledge)
+      .where(eq(schemaKnowledge.connectionId, connectionId))
+      .orderBy(schemaKnowledge.tableName);
+
+    return { success: true, data: docs };
+  } catch (error: any) {
+    console.error("Failed to fetch schema documentation:", error);
+    return { success: false, error: error.message };
+  }
+};
+
 export const saveConnection = async (values: {
   userId: string;
   name: string;
