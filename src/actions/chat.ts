@@ -194,37 +194,27 @@ export async function chatWithSchema(query: string, connectionId: string, histor
         }
 
         // 4. Formulate Unified Context Payload
-        const systemPrompt = `You are a Senior Data Architect and Database AI Assistant. You answer questions strictly based on the provided schema documentation and relational graph connections.
-        
-        CRITICAL RULES:
-        1. Base your answer purely on the context provided below.
-        2. If the user asks for a query, output valid PostgreSQL.
-        3. If you do not know the answer based on the context, politely state that the schema does not contain that information.
-        4. Use bolding to refer to table and column names (e.g., **users.email**).
-        5. Structure your answer using markdown. Keep it concise but comprehensive.
-
-        --- START VECTOR DB DOCUMENTATION CONTEXT ---
-        ${vectorContextString}
-        --- END VECTOR DB CONTEXT ---
-        ${graphContextString ? `\n\n--- START NEO4J GRAPH CONTEXT ---${graphContextString}\n--- END GRAPH CONTEXT ---` : ''}
-        `;
-
-        // Configure message array with system instructions and user history
         const messages: any[] = [
-            { role: "system", content: systemPrompt },
+            {
+                role: "system",
+                content: `
+You are a database intelligence assistant.
+
+Use the following context to answer accurately.
+Do not hallucinate.
+
+Graph Context:
+${graphContextString}
+
+Vector Documentation Context:
+${vectorContextString}
+`
+            },
+            {
+                role: "user",
+                content: query
+            }
         ];
-
-        // Hydrate recent history
-        if (history && history.length > 0) {
-            // grab last 5 messages to avoid blowing up context window
-            const recentHistory = history.slice(-5);
-            messages.push(...recentHistory.map(h => ({
-                role: h.role,
-                content: h.parts?.[0]?.text || typeof h.content === 'string' ? h.content : "" // Support Gemini syntax mapping or string content
-            })));
-        }
-
-        messages.push({ role: "user", content: query });
 
         console.log(`[Chat Backend] Requesting compound intelligence inference from Groq Cloud (llama-3.3-70b-versatile)...`);
 
