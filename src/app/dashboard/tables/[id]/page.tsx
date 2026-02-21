@@ -5,7 +5,7 @@ import DashboardLayout from "../../../../components/dashboard/DashboardLayout";
 import { Table2, Eye, Loader2, AlertCircle, Database, ArrowLeft, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { getDatabaseMetadata, getConnectionStringById } from "../../../../actions/db";
-import { indexRemoteDatabase } from "../../../../actions/rag"; // Import the indexer
+import { indexRemoteDatabase } from "../../../../actions/rag";
 import { Button } from "@/src/components/ui/button";
 import { authClient } from "@/src/components/landing/auth";
 import { ChatDrawer } from "@/src/components/chatDrawer";
@@ -22,8 +22,12 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
 
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Action Loading States
+  const [isSyncingAI, setIsSyncingAI] = useState(false);
+  const [isSyncingTables, setIsSyncingTables] = useState(false);
+  const [isGeneratingGraph, setIsGeneratingGraph] = useState(false);
 
   const loadMetadata = async () => {
     if (authLoading) return;
@@ -75,37 +79,77 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
     loadMetadata();
   }, [id, session, authLoading]);
 
+  // ACTION 1: Sync AI Knowledge (Vector/Qdrant)
   const handleSyncAI = async () => {
-    if (!session?.user?.id) {
-      console.log("Sync cancelled: No active session found.");
-      return;
-    }
-
-    setIsSyncing(true);
-    console.log("Starting AI Sync for connection:", id);
-
+    if (!session?.user?.id) return;
+    setIsSyncingAI(true);
     try {
       const connString = await getConnectionStringById(id, session.user.id);
-
-      if (!connString) {
-        console.error("Sync failed: Connection string could not be retrieved.");
-        throw new Error("Connection string missing");
-      }
+      if (!connString) throw new Error("Connection string missing");
 
       const result = await indexRemoteDatabase(id, connString);
-
       if (result.success) {
-        console.log("AI Index synced successfully!", result.message);
+        console.log("AI Index synced successfully!");
       } else {
-        console.error("Server-side Sync Error:", result.error);
+        setError(result.error || "Failed to sync AI knowledge");
       }
     } catch (err: any) {
-      console.error("Client-side Sync Failure:", err.message);
+      setError(err.message);
     } finally {
-      setIsSyncing(false);
-      console.log("AI Sync process finished.");
+      setIsSyncingAI(false);
     }
   };
+
+  // ACTION 2: Sync Table Metadata (Internal Relational DB)
+  const handleSyncTables = async () => {
+    if (!session?.user?.id) return;
+    setIsSyncingTables(true);
+    try {
+      const connString = await getConnectionStringById(id, session.user.id);
+      if (!connString) throw new Error("Connection disappeared");
+
+      const result = await getDatabaseMetadata(connString);
+      if (!result.success || !result.data) throw new Error("Failed to fetch fresh schema metadata");
+
+      const { syncTableMetadata } = await import('../../../../actions/metadata');
+      
+      const organized = result.data.schema.reduce((acc: any, curr: any) => {
+        if (!acc[curr.table_name]) {
+          acc[curr.table_name] = { name: curr.table_name, columns: [] };
+        }
+        acc[curr.table_name].columns.push(curr);
+        return acc;
+      }, {});
+
+      const syncResult = await syncTableMetadata(id, Object.values(organized));
+      if (!syncResult.success) throw new Error(syncResult.error || "Failed to securely sync metadata");
+      
+      await loadMetadata();
+    } catch (err: any) {
+      setError(err.message || "An error occurred during sync");
+    } finally {
+      setIsSyncingTables(false);
+    }
+  };
+
+  // ACTION 3: Build Inference Graph
+  const handleGenerateInference = async () => {
+    if (!session?.user?.id) return;
+    setIsGeneratingGraph(true);
+    try {
+      const { buildGraphForInference } = await import('../../../../actions/graphBuilder');
+      const result = await buildGraphForInference(id);
+
+      if (!result.success) throw new Error(result.error || "Failed to construct Graph DB.");
+
+      alert("Graph successfully constructed for LLM inference.");
+    } catch (err: any) {
+      setError(err.message || "An error occurred generating the graph");
+    } finally {
+      setIsGeneratingGraph(false);
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="mb-8 flex flex-col gap-4">
@@ -115,7 +159,7 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
         >
           <ArrowLeft className="w-3 h-3 mr-1" /> Back to Connections
         </Link>
-        <div className="flex justify-between items-end">
+        <div className="flex justify-between items-end flex-wrap gap-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Database Schema</h1>
             <p className="text-sm text-muted-foreground mt-1 text-wrap max-w-md">
@@ -124,24 +168,38 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Sync Button: This populates the context the AI needs */}
+            <Button 
+              onClick={handleGenerateInference} 
+              className="gap-2 h-8 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white border-amber-500" 
+              variant="outline" 
+              disabled={isGeneratingGraph || isSyncingTables || isSyncingAI || loading}
+            >
+              {isGeneratingGraph ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
+              {isGeneratingGraph ? "GENERATING..." : "BUILD GRAPH"}
+            </Button>
+
+            <Button 
+              onClick={handleSyncTables} 
+              className="gap-2 h-8 text-xs font-bold" 
+              variant="outline" 
+              disabled={isSyncingTables || isGeneratingGraph || isSyncingAI || loading}
+            >
+              {isSyncingTables ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              {isSyncingTables ? "SYNCING..." : "SYNC TABLES"}
+            </Button>
+
             <Button
-              variant="outline"
+              variant="default"
               size="sm"
               onClick={handleSyncAI}
-              disabled={isSyncing || loading}
-              className="gap-2 border-dashed"
+              disabled={isSyncingAI || isSyncingTables || isGeneratingGraph || loading}
+              className="gap-2 h-8 text-xs font-bold"
             >
-              {isSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-              {isSyncing ? "Syncing AI Knowledge..." : "Sync AI"}
+              {isSyncingAI ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
+              {isSyncingAI ? "SYNCING AI..." : "SYNC AI"}
             </Button>
 
             <ChatDrawer connectionId={id} connectionName="Database" />
-
-            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-full text-xs font-medium border border-primary/20">
-              <Database className="w-3 h-3" />
-              Connected
-            </div>
           </div>
         </div>
       </div>
@@ -152,9 +210,10 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
           <p className="text-sm font-medium animate-pulse uppercase tracking-widest text-muted-foreground">Mapping Data Objects...</p>
         </div>
       ) : error ? (
-        <div className="flex items-center gap-3 p-6 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive">
+        <div className="flex items-center gap-3 p-6 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive mb-6">
           <AlertCircle className="w-5 h-5" />
           <p className="text-sm font-medium">{error}</p>
+          <Button variant="ghost" size="sm" onClick={() => setError(null)} className="ml-auto font-bold uppercase text-[10px]">Dismiss</Button>
         </div>
       ) : (
         <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">

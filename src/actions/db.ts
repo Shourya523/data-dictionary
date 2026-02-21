@@ -22,10 +22,38 @@ export async function getDatabaseMetadata(connectionString: string) {
     const sqlConnection = postgres(uri, { max: 1, connect_timeout: 10 });
     try {
       const schemaInfo = await sqlConnection`
-        SELECT table_name, column_name, data_type 
-        FROM information_schema.columns 
-        WHERE table_schema = 'public'
-        ORDER BY table_name, ordinal_position;
+        SELECT 
+            c.table_name, 
+            c.column_name, 
+            c.data_type,
+            c.is_nullable,
+            CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END AS is_primary_key,
+            CASE WHEN fk.column_name IS NOT NULL THEN true ELSE false END AS is_foreign_key,
+            fk.foreign_table_name,
+            fk.foreign_column_name
+        FROM information_schema.columns c
+        LEFT JOIN (
+            SELECT kcu.table_name, kcu.column_name
+            FROM information_schema.table_constraints tco
+            JOIN information_schema.key_column_usage kcu 
+              ON kcu.constraint_name = tco.constraint_name 
+             AND kcu.constraint_schema = tco.constraint_schema
+            WHERE tco.constraint_type = 'PRIMARY KEY' AND tco.table_schema = 'public'
+        ) pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name
+        LEFT JOIN (
+             SELECT
+                tc.table_name, kcu.column_name,
+                ccu.table_name AS foreign_table_name,
+                ccu.column_name AS foreign_column_name
+            FROM information_schema.table_constraints AS tc
+            JOIN information_schema.key_column_usage AS kcu
+              ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+            JOIN information_schema.constraint_column_usage AS ccu
+              ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
+            WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
+        ) fk ON c.table_name = fk.table_name AND c.column_name = fk.column_name
+        WHERE c.table_schema = 'public'
+        ORDER BY c.table_name, c.ordinal_position;
       `;
       const counts = await sqlConnection`
         SELECT relname AS table_name, n_live_tup AS row_count 
@@ -167,17 +195,38 @@ export async function getSingleTableDetails(connectionString: string, tableName:
   try {
     const columns = await sqlConnection`
       SELECT 
-        column_name as name, 
-        data_type as type, 
-        is_nullable,
-        column_default
-      FROM 
-        information_schema.columns 
-      WHERE 
-        table_name = ${tableName}
-        AND table_schema = 'public'
-      ORDER BY 
-        ordinal_position;
+          c.table_name, 
+          c.column_name as name, 
+          c.data_type as type,
+          c.is_nullable,
+          c.column_default,
+          CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END AS is_primary_key,
+          CASE WHEN fk.column_name IS NOT NULL THEN true ELSE false END AS is_foreign_key,
+          fk.foreign_table_name,
+          fk.foreign_column_name
+      FROM information_schema.columns c
+      LEFT JOIN (
+          SELECT kcu.table_name, kcu.column_name
+          FROM information_schema.table_constraints tco
+          JOIN information_schema.key_column_usage kcu 
+            ON kcu.constraint_name = tco.constraint_name 
+           AND kcu.constraint_schema = tco.constraint_schema
+          WHERE tco.constraint_type = 'PRIMARY KEY' AND tco.table_schema = 'public'
+      ) pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name
+      LEFT JOIN (
+           SELECT
+              tc.table_name, kcu.column_name,
+              ccu.table_name AS foreign_table_name,
+              ccu.column_name AS foreign_column_name
+          FROM information_schema.table_constraints AS tc
+          JOIN information_schema.key_column_usage AS kcu
+            ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+          JOIN information_schema.constraint_column_usage AS ccu
+            ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
+          WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
+      ) fk ON c.table_name = fk.table_name AND c.column_name = fk.column_name
+      WHERE c.table_name = ${tableName} AND c.table_schema = 'public'
+      ORDER BY c.ordinal_position;
     `;
     return { success: true, data: columns };
   } catch (error: any) {
@@ -313,7 +362,7 @@ export async function getTableQuality(connectionString: string, tableName: strin
       const name = col.column_name || col.name;
       const type = (col.data_type || col.type).toLowerCase();
       const isNumeric = ['integer', 'numeric', 'real', 'double precision', 'bigint', 'decimal'].some(t => type.includes(t));
-      
+
       return `
         COUNT("${name}") as "${name}_count",
         COUNT(DISTINCT "${name}") as "${name}_unique"
@@ -327,7 +376,7 @@ export async function getTableQuality(connectionString: string, tableName: strin
       const name = col.column_name || col.name;
       const count = Number(stats[`${name}_count`]);
       const total = Number(stats.total_rows);
-      
+
       return {
         column: name,
         type: col.data_type || col.type,
@@ -364,7 +413,7 @@ export async function deleteConnection(connectionId: string, userId: string) {
 
     // Refresh the connections page cache
     revalidatePath("/dashboard/connections");
-    
+
     return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };
