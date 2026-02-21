@@ -2,13 +2,19 @@
 
 import puppeteer from 'puppeteer';
 import { marked } from 'marked';
-import fs from 'fs';
-import path from 'path';
+import { v2 as cloudinary } from 'cloudinary';
 import { db } from '../db';
 import { schemaDocImages } from '../db/schema';
 
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
 function generateHtmlTemplate(contentHtml: string) {
-    return `
+  return `
 <!DOCTYPE html>
 <html>
 <head>
@@ -20,7 +26,7 @@ function generateHtmlTemplate(contentHtml: string) {
             padding: 40px;
             background-color: #ffffff;
             color: #1a1a1a;
-            width: 1120px; /* 1200 - 80 padding */
+            width: 1120px;
             line-height: 1.6;
         }
         h1, h2, h3, h4 { color: #111827; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; margin-top: 32px; }
@@ -46,84 +52,95 @@ function generateHtmlTemplate(contentHtml: string) {
 }
 
 export async function generateDocumentationImages(connectionId: string, entityName: string, markdown: string) {
-    console.log(`[Puppeteer] Starting image generation for ${entityName}...`);
+  console.log(`[Cloudinary] Starting image generation for ${entityName}...`);
 
-    const contentHtml = await marked.parse(markdown);
-    const fullHtml = generateHtmlTemplate(contentHtml);
+  const contentHtml = await marked.parse(markdown);
+  const fullHtml = generateHtmlTemplate(contentHtml);
 
-    const publicDir = path.join(process.cwd(), 'public');
-    const refsDir = path.join(publicDir, 'schema_refs', connectionId);
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1200, height: 1000 });
+    await page.setContent(fullHtml, { waitUntil: 'networkidle0' });
 
-    if (!fs.existsSync(refsDir)) {
-        fs.mkdirSync(refsDir, { recursive: true });
+    const bodyHeight = await page.evaluate(() => document.body.scrollHeight);
+    const viewportHeight = 1000;
+    const totalPages = Math.max(1, Math.ceil(bodyHeight / viewportHeight));
+
+    const generatedImages: { pageNumber: number, imagePath: string }[] = [];
+
+    for (let i = 0; i < totalPages; i++) {
+      const pageNumber = i + 1;
+      
+      const clip = {
+        x: 0,
+        y: i * viewportHeight,
+        width: 1200,
+        height: Math.min(viewportHeight, bodyHeight - (i * viewportHeight))
+      };
+
+      if (clip.height <= 0) clip.height = viewportHeight;
+
+      // Capture screenshot as a Buffer
+      const buffer = await page.screenshot({ clip, encoding: 'binary' }) as Buffer;
+
+      // Upload to Cloudinary directly from Buffer
+      const uploadResponse = await new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          {
+            folder: `schema_refs/${connectionId}`,
+            public_id: `${entityName}_page_${pageNumber}`,
+            overwrite: true,
+            resource_type: 'image'
+          },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          }
+        );
+        uploadStream.end(buffer);
+      }) as any;
+
+      console.log(`[Cloudinary] Uploaded: ${uploadResponse.secure_url}`);
+
+      generatedImages.push({ 
+        pageNumber, 
+        imagePath: uploadResponse.secure_url // Save the Cloudinary URL instead of local path
+      });
     }
 
-    let browser;
-    try {
-        browser = await puppeteer.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
-        });
-        const page = await browser.newPage();
-        await page.setViewport({ width: 1200, height: 1000 });
-        await page.setContent(fullHtml, { waitUntil: 'networkidle0' });
+    return { success: true, images: generatedImages };
 
-        const bodyHeight = await page.evaluate(() => document.body.scrollHeight);
-        const viewportHeight = 1000;
-        const totalPages = Math.max(1, Math.ceil(bodyHeight / viewportHeight));
-
-        const generatedImages: { pageNumber: number, imagePath: string }[] = [];
-
-        for (let i = 0; i < totalPages; i++) {
-            const pageNumber = i + 1;
-            const fileName = `${entityName}_page_${pageNumber}.png`;
-            const filePath = path.join(refsDir, fileName);
-            const relativePath = `/schema_refs/${connectionId}/${fileName}`;
-
-            const clip = {
-                x: 0,
-                y: i * viewportHeight,
-                width: 1200,
-                height: Math.min(viewportHeight, bodyHeight - (i * viewportHeight))
-            };
-
-            // Fix zero height clip boundary error just in case
-            if (clip.height <= 0) clip.height = viewportHeight;
-
-            await page.screenshot({ path: filePath, clip });
-            console.log(`[Puppeteer] Saved screenshot: ${filePath}`);
-
-            generatedImages.push({ pageNumber, imagePath: relativePath });
-        }
-
-        return { success: true, images: generatedImages };
-
-    } catch (e: any) {
-        console.error(`[Puppeteer] Failed to generate images for ${entityName}:`, e);
-        return { success: false, error: e.message };
-    } finally {
-        if (browser) {
-            await browser.close();
-        }
+  } catch (e: any) {
+    console.error(`[Cloudinary] Failed to generate/upload images for ${entityName}:`, e);
+    return { success: false, error: e.message };
+  } finally {
+    if (browser) {
+      await browser.close();
     }
+  }
 }
 
 export async function saveImageMetadata(connectionId: string, entityName: string, images: { pageNumber: number, imagePath: string }[]) {
-    if (!images || images.length === 0) return { success: true };
+  if (!images || images.length === 0) return { success: true };
 
-    try {
-        const values = images.map(img => ({
-            connectionId,
-            entityName,
-            pageNumber: img.pageNumber,
-            imagePath: img.imagePath
-        }));
+  try {
+    const values = images.map(img => ({
+      connectionId,
+      entityName,
+      pageNumber: img.pageNumber,
+      imagePath: img.imagePath // This will now be the https://res.cloudinary.com/... URL
+    }));
 
-        await db.insert(schemaDocImages).values(values);
-        console.log(`[Puppeteer] Saved metadata for ${values.length} images for ${entityName}.`);
-        return { success: true };
-    } catch (e: any) {
-        console.error(`[Puppeteer] Failed to save metadata for ${entityName}:`, e);
-        return { success: false, error: e.message };
-    }
+    await db.insert(schemaDocImages).values(values);
+    console.log(`[Database] Saved Cloudinary metadata for ${entityName}.`);
+    return { success: true };
+  } catch (e: any) {
+    console.error(`[Database] Failed to save metadata for ${entityName}:`, e);
+    return { success: false, error: e.message };
+  }
 }
