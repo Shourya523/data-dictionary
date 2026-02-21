@@ -4,74 +4,86 @@ import Link from "next/link";
 import { Button } from "../ui/button";
 import { ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
+import RotatingEarth from "./wireframe-dotted-globe";
 
 const HeroSection = () => {
   return (
-    <section className="min-h-screen flex items-center justify-center pt-14">
-      <div className="container mx-auto px-6 text-center">
+    <section className="relative min-h-screen flex items-center justify-center pt-20 overflow-hidden bg-[#050505]">
+      {/* Background Globe */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 2 }}
+          className="relative"
+        >
+          {/* Subtle Glow behind the globe */}
+          <div className="absolute inset-0 bg-primary/10 blur-[120px] rounded-full" />
+          <RotatingEarth width={900} height={900} />
+        </motion.div>
+      </div>
+
+      <div className="container relative z-10 mx-auto px-6 text-center">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, ease: [0.25, 0.46, 0.45, 0.94] }}
+          transition={{ duration: 0.8 }}
           className="max-w-3xl mx-auto"
         >
-          <p className="text-primary text-sm font-medium tracking-wide mb-6">
+          <p className="text-primary text-sm font-semibold tracking-[0.2em] uppercase mb-6">
             Intelligent Data Dictionary Agent
           </p>
 
-          <h1 className="text-5xl md:text-7xl font-bold tracking-tight leading-[1.05] mb-6">
+          <h1 className="text-5xl md:text-8xl font-bold tracking-tighter leading-[0.9] mb-8 text-white">
             Understand your
             <br />
-            data <span className="text-gradient">instantly.</span>
+            data <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">instantly.</span>
           </h1>
 
-          <p className="text-lg text-muted-foreground max-w-xl mx-auto mb-10 leading-relaxed">
+          <p className="text-lg text-zinc-400 max-w-lg mx-auto mb-12 leading-relaxed">
             AI-powered documentation, governance, and natural language search for enterprise databases.
           </p>
 
-          <div className="flex items-center justify-center gap-4">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link href="/dashboard">
-              <Button size="lg" className="h-12 px-8">
+              <Button size="lg" className="h-14 px-10 rounded-full font-bold text-base shadow-[0_0_20px_rgba(var(--primary),0.3)]">
                 Start Free
-                <ArrowRight className="ml-2 w-4 h-4" />
+                <ArrowRight className="ml-2 w-5 h-5" />
               </Button>
             </Link>
             <Link href="/dashboard">
-            <Button size="lg" variant="outline" className="h-12 px-8">
-              View Demo
-            </Button>
+              <Button size="lg" variant="ghost" className="h-14 px-10 rounded-full font-bold text-base text-white hover:bg-white/5">
+                View Demo
+              </Button>
             </Link>
           </div>
         </motion.div>
 
-        {/* Dashboard Preview */}
+        {/* Minimal Dashboard Mockup */}
         <motion.div
-          initial={{ opacity: 0, y: 40 }}
+          initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{
-            duration: 0.8,
-            delay: 0.3,
-            ease: [0.25, 0.46, 0.45, 0.94],
-          }}
-          className="mt-24 max-w-4xl mx-auto"
+          transition={{ duration: 1, delay: 0.4 }}
+          className="mt-20 max-w-5xl mx-auto"
         >
-          <div className="rounded-2xl border border-border bg-card p-1 glow-green">
-            <div className="flex items-center gap-1.5 px-4 py-3">
-              <div className="w-2.5 h-2.5 rounded-full bg-muted-foreground/20" />
-              <div className="w-2.5 h-2.5 rounded-full bg-muted-foreground/20" />
-              <div className="w-2.5 h-2.5 rounded-full bg-muted-foreground/20" />
+          <div className="rounded-3xl border border-white/10 bg-zinc-900/40 backdrop-blur-2xl p-8 shadow-2xl relative">
+             {/* Decorative Dots */}
+            <div className="flex gap-2 mb-8">
+              <div className="w-3 h-3 rounded-full bg-zinc-700" />
+              <div className="w-3 h-3 rounded-full bg-zinc-700" />
+              <div className="w-3 h-3 rounded-full bg-zinc-700" />
             </div>
 
-            <div className="px-6 pb-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
               {[
-                { label: "Tables", value: "247" },
-                { label: "Sensitive", value: "38" },
-                { label: "Quality", value: "94%" },
-                { label: "Synced", value: "2m ago" },
+                { label: "Tables Indexed", value: "247" },
+                { label: "Critical Assets", value: "38" },
+                { label: "Auto-Doc Score", value: "94%" },
+                { label: "Last Sync", value: "2m ago" },
               ].map((s) => (
-                <div key={s.label} className="p-4 rounded-xl bg-secondary/50">
-                  <p className="text-xs text-muted-foreground mb-1">{s.label}</p>
-                  <p className="text-2xl font-semibold">{s.value}</p>
+                <div key={s.label} className="text-left border-l border-white/10 pl-6">
+                  <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold mb-2">{s.label}</p>
+                  <p className="text-3xl font-bold text-white tracking-tight">{s.value}</p>
                 </div>
               ))}
             </div>
