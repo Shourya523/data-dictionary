@@ -8,6 +8,7 @@ import { db } from "../db";
 import { entities, fields, relationships, schemaKnowledge } from "../db/schema";
 import { eq, inArray } from "drizzle-orm";
 import { getSession } from "../lib/neo4j";
+import { generateDocumentationImages, saveImageMetadata } from "./puppeteerGenerator";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 const NAMESPACE = "0ea2b2f2-67a0-4d67-95f0-9b8a99c9605c"; // Standard UUID namespace
@@ -167,6 +168,14 @@ Return Markdown only.`
                     target: [schemaKnowledge.connectionId, schemaKnowledge.entityName],
                     set: { markdownContent: markdownContent, updatedAt: new Date() }
                 });
+
+            // 7. Generate and save styled images of the documentation using Puppeteer
+            const imageResult = await generateDocumentationImages(connectionId, entity.name, markdownContent);
+            if (imageResult.success && imageResult.images) {
+                await saveImageMetadata(connectionId, entity.name, imageResult.images);
+            } else {
+                console.error(`[RAG Backend] Image generation failed for ${entity.name}:`, imageResult.error);
+            }
         }
 
         return { success: true, message: `Successfully generated documentation for ${dbEntities.length} tables.` };

@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, customType, unique, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, boolean, customType, unique, index, integer } from "drizzle-orm/pg-core";
 
 // Custom type for pgvector support
 // 768 dimensions matches 'gemini-embedding-001' and 'text-embedding-004'
@@ -110,3 +110,14 @@ export const relationships = pgTable("relationships", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+export const schemaDocImages = pgTable("schema_doc_images", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  connectionId: text("connection_id").notNull(),
+  entityName: text("entity_name").notNull(),
+  pageNumber: integer("page_number").notNull(),
+  imagePath: text("image_path").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("doc_images_conn_entity_idx").on(t.connectionId, t.entityName)
+]);

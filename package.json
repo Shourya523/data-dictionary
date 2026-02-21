@@ -68,6 +68,7 @@
     "next-themes": "^0.4.6",
     "postcss": "^8.5.6",
     "postgres": "^3.4.8",
+    "puppeteer": "^24.37.5",
     "radix-ui": "^1.4.3",
     "react": "19.2.3",
     "react-day-picker": "^9.13.2",
