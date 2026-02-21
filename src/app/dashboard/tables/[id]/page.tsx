@@ -11,6 +11,7 @@ import { authClient } from "@/src/components/landing/auth";
 import { ChatDrawer } from "@/src/components/chatDrawer";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/src/components/ui/tabs";
 import { DocumentationTab } from "@/src/components/dashboard/DocumentationTab";
+import { ChatTab } from "@/src/components/dashboard/ChatTab";
 
 interface TableInfo {
   name: string;
@@ -222,12 +223,15 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
       </div>
 
       <Tabs defaultValue="schema" className="w-full">
-        <TabsList className="mb-6 grid w-full grid-cols-2 lg:w-[400px]">
+        <TabsList className="mb-6 grid w-full grid-cols-3 lg:w-[600px]">
           <TabsTrigger value="schema" className="font-bold text-xs uppercase tracking-wider">
             Schema Explorer
           </TabsTrigger>
           <TabsTrigger value="documentation" className="font-bold text-xs uppercase tracking-wider">
             AI Documentation
+          </TabsTrigger>
+          <TabsTrigger value="chat" className="font-bold text-xs uppercase tracking-wider text-blue-600 dark:text-blue-400 data-[state=active]:bg-blue-600 data-[state=active]:text-white">
+            Chat with AI
           </TabsTrigger>
         </TabsList>
 
@@ -305,6 +309,10 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
 
         <TabsContent value="documentation" className="mt-0">
           <DocumentationTab connectionId={id as string} userId={session?.user?.id as string} />
+        </TabsContent>
+
+        <TabsContent value="chat" className="mt-0">
+          <ChatTab connectionId={id as string} />
         </TabsContent>
       </Tabs>
     </DashboardLayout>
