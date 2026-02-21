@@ -36,21 +36,16 @@ const LandingNavbar = () => {
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border/50">
       <div className="container mx-auto flex items-center h-14 px-6 relative">
-        {/* Left: Logo */}
         <Link href="/" className="flex items-center gap-2.5 font-semibold text-base tracking-tight cursor-pointer select-none">
           <Database className="w-5 h-5 text-primary" />
           DataLens AI
         </Link>
-
-        {/* Center: Nav Links (Hidden on mobile) */}
-        {/* We use absolute centering so these stay in the middle regardless of button width on the right */}
         <div className="hidden md:flex absolute left-1/2 -translate-x-1/2 items-center gap-8 text-sm text-muted-foreground">
           <a href="#features" className="hover:text-foreground transition-colors cursor-pointer">Features</a>
           <a href="#how-it-works" className="hover:text-foreground transition-colors cursor-pointer">How It Works</a>
-          <a href="#pricing" className="hover:text-foreground transition-colors cursor-pointer">Pricing</a>
+          {/* <a href="#pricing" className="hover:text-foreground transition-colors cursor-pointer">Pricing</a> */}
         </div>
 
-        {/* Right: Auth Actions */}
         <div className="hidden md:flex items-center gap-3 ml-auto">
           {isPending ? (
             <div className="h-8 w-20 bg-muted animate-pulse rounded" />
