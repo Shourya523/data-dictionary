@@ -268,7 +268,37 @@ export const getConnectionStringById = async (id: string, userId: string) => {
   }
 };
 
-export const saveConnection = async (values: { userId: string; name: string; provider: string; uri: string; }) => {
+export const getSchemaDocumentation = async (connectionId: string, userId: string) => {
+  try {
+    const connString = await getConnectionStringById(connectionId, userId);
+    if (!connString) {
+      return { success: false, error: "Unauthorized or connection not found." };
+    }
+
+    const { schemaKnowledge } = await import('../db/schema');
+    const docs = await db
+      .select({
+        tableName: schemaKnowledge.entityName,
+        content: schemaKnowledge.markdownContent,
+        updatedAt: schemaKnowledge.updatedAt
+      })
+      .from(schemaKnowledge)
+      .where(eq(schemaKnowledge.connectionId, connectionId))
+      .orderBy(schemaKnowledge.entityName);
+
+    return { success: true, data: docs };
+  } catch (error: any) {
+    console.error("Failed to fetch schema documentation:", error);
+    return { success: false, error: error.message };
+  }
+};
+
+export const saveConnection = async (values: {
+  userId: string;
+  name: string;
+  provider: string;
+  uri: string;
+}) => {
   try {
     const [existingConn] = await db
       .select({ id: connections.id })
@@ -362,7 +392,6 @@ export async function runCustomQuery(connectionId: string, userId: string | unde
     const FALLBACK_URI = "postgresql://neondb_owner:npg_RurVIE0FdTc1@ep-morning-morning-aiknmhke-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
     
     let uri = "";
-    // Check if demo or not logged in
     if (connectionId === "demo-neon-db" || !userId) {
       uri = FALLBACK_URI;
     } else {
@@ -376,7 +405,6 @@ export async function runCustomQuery(connectionId: string, userId: string | unde
       const sqlConnection = postgres(uri, { max: 1 });
       try {
         const result = await sqlConnection.unsafe(sqlText);
-        // FIX: Stringify then Parse to ensure plain JSON array for the frontend
         return { success: true, data: JSON.parse(JSON.stringify(result)) };
       } finally {
         await sqlConnection.end();

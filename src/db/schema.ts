@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, customType,unique } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, boolean, customType, unique, index } from "drizzle-orm/pg-core";
 
 // Custom type for pgvector support
 // 768 dimensions matches 'gemini-embedding-001' and 'text-embedding-004'
@@ -72,13 +72,16 @@ export const schemaKnowledge = pgTable("schema_knowledge", {
   connectionId: text("connection_id")
     .notNull()
     .references(() => connections.id, { onDelete: "cascade" }),
-  tableName: text("table_name").notNull(),
-  content: text("content").notNull(),
+  entityName: text("entity_name").notNull(),
+  markdownContent: text("markdown_content").notNull(),
+  summary: text("summary"),
+  embeddingId: text("embedding_id"),
   embedding: vector("embedding"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
-  unique("unique_connection_table").on(t.connectionId, t.tableName)
+  unique("unique_connection_entity").on(t.connectionId, t.entityName),
+  index("idx_entity_name").on(t.entityName)
 ]);
 // Metadata Tables
 export const entities = pgTable("entities", {
