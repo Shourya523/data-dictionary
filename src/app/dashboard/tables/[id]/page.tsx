@@ -22,6 +22,7 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [generatingGraph, setGeneratingGraph] = useState(false);
 
   useEffect(() => {
     async function loadMetadata() {
@@ -114,6 +115,28 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
     }
   };
 
+  const handleGenerateInference = async () => {
+    if (!session?.user?.id) return;
+    setGeneratingGraph(true);
+    
+    try {
+      const { buildGraphForInference } = await import('../../../../actions/graphBuilder');
+      const result = await buildGraphForInference(id);
+
+      if (!result.success) {
+        throw new Error(result.error || "Failed to construct Graph DB.");
+      }
+
+      alert("Graph successfully constructed and metadata seeded! It is ready for LLM inference.");
+
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "An error occurred generating the graph");
+    } finally {
+      setGeneratingGraph(false);
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="mb-8 flex flex-col gap-4">
@@ -132,10 +155,23 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
           </div>
           <div className="flex items-center gap-3">
              <Button 
+                onClick={handleGenerateInference} 
+                className="gap-2 h-8 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white border-amber-500" 
+                variant="outline" 
+                disabled={generatingGraph || syncing || loading}
+             >
+                {generatingGraph ? (
+                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                   <Database className="w-3.5 h-3.5" />
+                )}
+                {generatingGraph ? "GENERATING..." : "BUILD GRAPH"}
+            </Button>
+             <Button 
                 onClick={handleSync} 
                 className="gap-2 h-8 text-xs font-bold" 
                 variant="outline" 
-                disabled={syncing || loading}
+                disabled={syncing || generatingGraph || loading}
              >
                 {syncing ? (
                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
