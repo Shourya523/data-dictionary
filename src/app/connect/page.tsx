@@ -54,6 +54,7 @@ export default function ConnectPage() {
     setError(null);
 
     try {
+      // 1. Validate the metadata first to ensure the string is working
       const result = await getDatabaseMetadata(connString);
 
       if (!result.success || !result.data) {
@@ -62,6 +63,7 @@ export default function ConnectPage() {
         return;
       }
 
+      // 2. Save to the vault
       const saveResult = await saveConnection({
         userId: session.user.id, 
         name: `${selectedDB?.toUpperCase()} Source`,
@@ -70,7 +72,7 @@ export default function ConnectPage() {
       });
 
       if (saveResult.success && "id" in saveResult && saveResult.id) {
-        localStorage.setItem("last_connection_id", saveResult.id as string);
+        // Redirection handles the state; localStorage is removed as requested
         router.push(`/dashboard/tables/${saveResult.id}`);
       } else {
         const errorMessage = (saveResult as any).error || "Failed to save connection to vault.";
@@ -103,7 +105,7 @@ export default function ConnectPage() {
               }`}
               onClick={() => {
                 setSelectedDB(db.id as DBType);
-                setConnString(""); // Clear string when switching DB types
+                setConnString(""); 
               }}
             >
               {isSelected && (

@@ -51,7 +51,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     { 
       label: "Tables", 
       icon: Table2, 
-      path: lastConnId ? `/dashboard/tables/${lastConnId}` : "/dashboard/tables" 
+      path: "/dashboard/tables" 
     },
     { label: "Data Quality", icon: BarChart3, path: "/dashboard/quality" },
     // { label: "Compliance", icon: ShieldCheck, path: "/dashboard/compliance" },
