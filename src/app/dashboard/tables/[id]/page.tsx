@@ -1,155 +1,172 @@
 "use client";
 
+import { useEffect, useState, use } from "react";
 import DashboardLayout from "../../../../components/dashboard/DashboardLayout";
-import { useParams } from "next/navigation";
+import { Table2, Eye, Loader2, AlertCircle, Database, ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { ArrowLeft, Key, Shield, Link2, Brain } from "lucide-react";
-import { Badge } from "../../../../components/ui/badge";
-import React from "react";
+import { getDatabaseMetadata, getConnectionStringById } from "../../../../actions/db";
+import { Button } from "@/src/components/ui/button";
+import { authClient } from "@/src/components/landing/auth";
 
-type Column = {
+interface TableInfo {
   name: string;
-  type: string;
-  description: string;
-  pii: boolean;
-  nullable: boolean;
-  fk?: string;
-};
+  columns: string[];
+  rowCount: number;
+}
 
-const usersColumns: Column[] = [
-  { name: "id", type: "uuid", description: "Primary key", pii: false, nullable: false },
-  { name: "email", type: "varchar(255)", description: "User email for login", pii: true, nullable: false },
-  { name: "password_hash", type: "text", description: "Bcrypt hashed password", pii: true, nullable: false },
-  { name: "full_name", type: "varchar(200)", description: "Display name", pii: true, nullable: true },
-  { name: "created_at", type: "timestamp", description: "Account creation time", pii: false, nullable: false },
-  { name: "status", type: "enum", description: "active / suspended / deleted", pii: false, nullable: false },
-];
+const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
+  const { id } = use(params);
+  const { data: session, isPending: authLoading } = authClient.useSession();
 
-const tableData: Record<
-  string,
-  {
-    desc: string;
-    ai: string;
-    columns: Column[];
-    quality: { completeness: number; freshness: string; uniqueness: number };
-  }
-> = {
-  users: {
-    desc: "Core user accounts and authentication data.",
-    ai: "Primary identity store. Contains credentials, account status, and timestamps. Foreign key target for orders, payments, and sessions.",
-    columns: usersColumns,
-    quality: { completeness: 96, freshness: "2 min ago", uniqueness: 100 },
-  },
-};
+  const [tables, setTables] = useState<TableInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-const fallback = {
-  desc: "AI-documented table.",
-  ai: "Connect your database for detailed AI analysis.",
-  columns: [
-    { name: "id", type: "uuid", description: "Primary key", pii: false, nullable: false },
-    { name: "created_at", type: "timestamp", description: "Creation time", pii: false, nullable: false },
-  ] as Column[],
-  quality: { completeness: 92, freshness: "5 min ago", uniqueness: 98 },
-};
+  useEffect(() => {
+    async function loadMetadata() {
+      if (authLoading) return;
+      if (!session?.user?.id) {
+        setError("Unauthorized access");
+        setLoading(false);
+        return;
+      }
 
-const TableDetail = () => {
-  const params = useParams();
-  const tableName = params?.tableName as string;
-  const data = tableData[tableName || ""] || fallback;
+      try {
+        const connString = await getConnectionStringById(id, session.user.id);
+
+        if (!connString) {
+          setError("Connection not found in vault.");
+          setLoading(false);
+          return;
+        }
+
+        const result = await getDatabaseMetadata(connString);
+
+        if (result.success && result.data) {
+          const { schema, counts } = result.data;
+
+          const organized = schema.reduce((acc: any, curr: any) => {
+            if (!acc[curr.table_name]) acc[curr.table_name] = [];
+            acc[curr.table_name].push(curr.column_name);
+            return acc;
+          }, {});
+
+          const formattedTables = Object.entries(organized).map(([name, columns]) => {
+            const countObj = counts.find((c: any) => c.table_name === name);
+            return {
+              name,
+              columns: columns as string[],
+              rowCount: countObj ? parseInt(countObj.row_count) : 0,
+            };
+          });
+
+          setTables(formattedTables);
+        } else {
+          setError(result.error || "Failed to fetch schema");
+        }
+      } catch (err: any) {
+        setError("An unexpected error occurred while connecting.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadMetadata();
+  }, [id, session, authLoading]);
 
   return (
     <DashboardLayout>
-      <Link
-        href="/dashboard/tables"
-        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-6"
-      >
-        <ArrowLeft className="w-3.5 h-3.5" /> Tables
-      </Link>
-
-      <h1 className="text-xl font-semibold font-mono mb-1">{tableName}</h1>
-      <p className="text-sm text-muted-foreground mb-8">{data.desc}</p>
-
-      <div className="rounded-xl border border-primary/20 bg-primary/5 p-5 mb-6">
-        <div className="flex items-center gap-2 mb-2">
-          <Brain className="w-4 h-4 text-primary" />
-          <span className="text-xs font-semibold uppercase tracking-widest text-primary">
-            AI Analysis
-          </span>
-        </div>
-        <p className="text-sm text-foreground/80 leading-relaxed">{data.ai}</p>
-      </div>
-
-      <div className="grid sm:grid-cols-3 gap-4 mb-6">
-        {[
-          { label: "Completeness", val: `${data.quality.completeness}%` },
-          { label: "Freshness", val: data.quality.freshness },
-          { label: "Uniqueness", val: `${data.quality.uniqueness}%` },
-        ].map((m) => (
-          <div key={m.label} className="p-4 rounded-xl border border-border bg-card">
-            <p className="text-[11px] text-muted-foreground uppercase tracking-widest">
-              {m.label}
+      <div className="mb-8 flex flex-col gap-4">
+        <Link 
+          href="/dashboard" 
+          className="flex items-center text-xs text-muted-foreground hover:text-primary transition-colors w-fit"
+        >
+          <ArrowLeft className="w-3 h-3 mr-1" /> Back to Connections
+        </Link>
+        <div className="flex justify-between items-end">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Database Schema</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Live inspection for connection <span className="font-mono text-primary text-xs bg-primary/5 px-1.5 py-0.5 rounded">{id}</span>
             </p>
-            <p className="text-lg font-semibold mt-1">{m.val}</p>
           </div>
-        ))}
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-full text-xs font-medium border border-primary/20">
+            <Database className="w-3 h-3" />
+            External Source Connected
+          </div>
+        </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-border">
-          <h2 className="text-sm font-semibold">Columns</h2>
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-32 bg-card border border-dashed rounded-xl">
+          <Loader2 className="w-10 h-10 animate-spin text-primary/50 mb-4" />
+          <p className="text-sm font-medium animate-pulse uppercase tracking-widest text-muted-foreground">Mapping Data Objects...</p>
         </div>
-        <div className="overflow-x-auto">
+      ) : error ? (
+        <div className="flex items-center gap-3 p-6 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive">
+          <AlertCircle className="w-5 h-5" />
+          <p className="text-sm font-medium">{error}</p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-secondary/30">
-                {["Column", "Type", "Description", "Flags"].map((h) => (
-                  <th
-                    key={h}
-                    className="text-left px-5 py-2.5 text-[11px] text-muted-foreground uppercase tracking-widest font-medium"
-                  >
-                    {h}
-                  </th>
-                ))}
+              <tr className="border-b border-border bg-muted/50">
+                <th className="text-left px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider">Table Name</th>
+                <th className="text-left px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider">Structure Preview</th>
+                <th className="text-left px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider">Live Rows</th>
+                <th className="px-6 py-4"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {data.columns.map((col) => (
-                <tr key={col.name} className="hover:bg-secondary/20 transition-colors">
-                  <td className="px-5 py-3 font-mono text-[13px] font-medium">
-                    {col.name}
-                    {col.fk && <Link2 className="inline w-3 h-3 ml-1 text-primary" />}
+              {tables.map((t) => (
+                <tr key={t.name} className="hover:bg-muted/30 transition-all group">
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-secondary rounded-lg group-hover:bg-primary/10 transition-colors">
+                        <Table2 className="w-4 h-4 text-primary" />
+                      </div>
+                      <span className="font-bold font-mono text-sm">{t.name}</span>
+                    </div>
                   </td>
-                  <td className="px-5 py-3 text-muted-foreground font-mono text-xs">
-                    {col.type}
-                  </td>
-                  <td className="px-5 py-3 text-muted-foreground">{col.description}</td>
-                  <td className="px-5 py-3">
-                    <div className="flex gap-1">
-                      {col.pii && (
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] gap-1 border-destructive/30 text-destructive"
-                        >
-                          <Shield className="w-2.5 h-2.5" />
-                          PII
-                        </Badge>
-                      )}
-                      {!col.nullable && (
-                        <Badge variant="outline" className="text-[10px] gap-1 text-muted-foreground">
-                          <Key className="w-2.5 h-2.5" />
-                          Required
-                        </Badge>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-wrap gap-1.5">
+                      {t.columns.slice(0, 4).map(col => (
+                        <code key={col} className="text-[10px] bg-muted px-2 py-0.5 rounded border border-border/50 font-medium">
+                          {col}
+                        </code>
+                      ))}
+                      {t.columns.length > 4 && (
+                        <span className="text-[10px] text-muted-foreground font-bold self-center">+{t.columns.length - 4}</span>
                       )}
                     </div>
+                  </td>
+                  <td className="px-6 py-4 font-mono">
+                    <span className="font-semibold text-foreground">
+                      {t.rowCount.toLocaleString()}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <Link href={`/dashboard/tables/${id}/${t.name}`}>
+                      <Button variant="ghost" size="sm" className="h-8 gap-2 hover:bg-primary hover:text-primary-foreground font-bold text-[10px] uppercase tracking-tighter">
+                        <Eye className="w-3.5 h-3.5" />
+                        Inspect
+                      </Button>
+                    </Link>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {tables.length === 0 && (
+            <div className="py-20 text-center text-muted-foreground italic">
+              No tables found in this database.
+            </div>
+          )}
         </div>
-      </div>
+      )}
     </DashboardLayout>
   );
 };
 
-export default TableDetail;
+export default DashboardTables;

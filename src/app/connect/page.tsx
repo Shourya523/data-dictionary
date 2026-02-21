@@ -4,25 +4,28 @@ import { useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Card } from "../../components/ui/card";
-import { 
-  Database, 
-  ArrowRight, 
-  CheckCircle2, 
+import {
+  ArrowRight,
+  CheckCircle2,
   Loader2,
   Lock
 } from "lucide-react";
+import { SiPostgresql, SiMysql, SiSnowflake } from "react-icons/si";
+import { getDatabaseMetadata } from "../../actions/db";
+import { useRouter } from "next/navigation";
+import { authClient } from "@/src/components/landing/auth";
+import { saveConnection } from "@/src/actions/db";
 
-import { 
-  SiPostgresql, 
-  SiMysql, 
-  SiSnowflake 
-} from "react-icons/si";
 type DBType = "postgresql" | "mysql" | "snowflake" | null;
 
 export default function ConnectPage() {
+  const router = useRouter();
+  const { data: session } = authClient.useSession();
+  
   const [selectedDB, setSelectedDB] = useState<DBType>(null);
   const [connString, setConnString] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const databases = [
     { id: "postgresql", name: "PostgreSQL", icon: SiPostgresql, color: "text-[#336791]" },
@@ -31,24 +34,63 @@ export default function ConnectPage() {
   ];
 
   const handleConnect = async () => {
+    if (!session?.user?.id) {
+      setError("No active session found. Please log in.");
+      return;
+    }
+
     setIsConnecting(true);
-    // Logic for Step 2 (Ingestion) will go here
-    console.log(`Connecting to ${selectedDB} with: ${connString}`);
-    setTimeout(() => setIsConnecting(false), 2000); 
+    setError(null);
+
+    try {
+      // 1. Validate the connection by fetching metadata
+      const result = await getDatabaseMetadata(connString);
+
+      if (!result.success || !result.data) {
+        setError(result.error || "Failed to connect to the database.");
+        setIsConnecting(false);
+        return;
+      }
+
+      // 2. Save the connection to the database vault
+      const saveResult = await saveConnection({
+        userId: session.user.id, 
+        name: `${selectedDB?.toUpperCase()} Source`,
+        provider: selectedDB!,
+        uri: connString,
+      });
+
+      // 3. Type-safe check for the ID
+      if (saveResult.success && "id" in saveResult && saveResult.id) {
+        // Store the ID in localStorage for the Sidebar
+        localStorage.setItem("last_connection_id", saveResult.id as string);
+        
+        // Redirect to the newly created table list
+        router.push(`/dashboard/tables/${saveResult.id}`);
+      } else {
+        // If saveResult.success is true but ID is missing, or success is false
+        const errorMessage = (saveResult as any).error || "Failed to save connection to vault.";
+        setError(errorMessage);
+        setIsConnecting(false);
+      }
+    } catch (err) {
+      setError("A critical error occurred while saving the connection.");
+      setIsConnecting(false);
+    }
   };
 
   return (
     <div className="max-w-4xl mx-auto py-20 px-6">
       <div className="text-center mb-12">
         <h1 className="text-3xl font-bold tracking-tight mb-2">Connect your Data Source</h1>
-        <p className="text-muted-foreground">Select a database to begin the AI-powered documentation process.</p>
+        <p className="text-muted-foreground">Select a database to securely sync your schema.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
         {databases.map((db) => {
           const Icon = db.icon;
           const isSelected = selectedDB === db.id;
-          
+
           return (
             <Card
               key={db.id}
@@ -79,29 +121,38 @@ export default function ConnectPage() {
               </label>
             </div>
             <Input
-              placeholder={`e.g. postgres://user:password@localhost:5432/dbname`}
+              placeholder={`postgresql://postgres:password@localhost:5432/dbname`}
               value={connString}
               onChange={(e) => setConnString(e.target.value)}
               className="h-12 border-2 focus-visible:ring-primary"
             />
-            <p className="text-xs text-muted-foreground">
-              We only require read-only access to your <b>information_schema</b>.
-            </p>
           </div>
 
-          <Button 
-            className="w-full h-12 text-lg font-medium" 
-            disabled={!connString || isConnecting}
+          {error && (
+            <div className="p-3 text-sm bg-destructive/10 border border-destructive/20 text-destructive rounded-lg">
+              {error}
+            </div>
+          )}
+
+          <Button
+            className="w-full h-12 text-lg font-medium"
+            disabled={!connString || isConnecting || !session}
             onClick={handleConnect}
           >
             {isConnecting ? (
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+              <>
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                Validating Connection...
+              </>
             ) : (
               <>
-                Initialize Ingestion <ArrowRight className="ml-2 w-5 h-5" />
+                Connect and Analyze <ArrowRight className="ml-2 w-5 h-5" />
               </>
             )}
           </Button>
+          {!session && (
+            <p className="text-xs text-center text-destructive">You must be logged in to save connections.</p>
+          )}
         </div>
       )}
     </div>

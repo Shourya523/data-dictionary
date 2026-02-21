@@ -46,3 +46,13 @@ export const verification = pgTable("verification", {
   createdAt: timestamp("created_at"),
   updatedAt: timestamp("updated_at"),
 });
+export const connections = pgTable("connections", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id),
+  name: text("name").notNull(), // e.g., "Olist Production"
+  provider: text("provider").notNull(), // e.g., "postgresql", "mysql"
+  tableUri: text("table_uri").notNull(), // The connection string
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   Table2,
@@ -14,27 +14,51 @@ import {
   ChevronLeft,
   Menu,
   X,
+  PlusCircle,
+  LogOut
 } from "lucide-react";
 import { useState, useEffect } from "react";
-
-const navItems = [
-  { label: "Overview", icon: LayoutDashboard, path: "/dashboard" },
-  { label: "Tables", icon: Table2, path: "/dashboard/tables" },
-  { label: "Data Quality", icon: BarChart3, path: "/dashboard/quality" },
-  { label: "Compliance", icon: ShieldCheck, path: "/dashboard/compliance" },
-  { label: "Lineage", icon: GitBranch, path: "/dashboard/lineage" },
-  { label: "AI Chat", icon: MessageSquare, path: "/dashboard/chat" },
-  { label: "Settings", icon: Settings, path: "/dashboard/settings" },
-];
+import { authClient } from "@/src/components/landing/auth";
 
 const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [lastConnId, setLastConnId] = useState<string | null>(null);
   const pathname = usePathname();
+  const router = useRouter();
 
   useEffect(() => {
     setIsMobileMenuOpen(false);
+    
+    const storedId = localStorage.getItem("last_connection_id");
+    if (storedId) {
+      setLastConnId(storedId);
+    }
   }, [pathname]);
+
+  const handleLogout = async () => {
+    await authClient.signOut({
+      fetchOptions: {
+        onSuccess: () => {
+          router.push("/");
+        },
+      },
+    });
+  };
+
+  const navItems = [
+    { label: "Overview", icon: LayoutDashboard, path: "/dashboard" },
+    { 
+      label: "Tables", 
+      icon: Table2, 
+      path: lastConnId ? `/dashboard/tables/${lastConnId}` : "/dashboard/tables" 
+    },
+    { label: "Data Quality", icon: BarChart3, path: "/dashboard/quality" },
+    { label: "Compliance", icon: ShieldCheck, path: "/dashboard/compliance" },
+    { label: "Lineage", icon: GitBranch, path: "/dashboard/lineage" },
+    { label: "AI Chat", icon: MessageSquare, path: "/dashboard/chat" },
+    { label: "Settings", icon: Settings, path: "/dashboard/settings" },
+  ];
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">
@@ -69,10 +93,16 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
 
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
           {navItems.map((item) => {
-            const isActive = pathname === item.path;
+            const isActive = 
+              item.label === "Overview" 
+                ? pathname === "/dashboard" 
+                : pathname.startsWith("/dashboard/tables") && item.label === "Tables" 
+                  ? true 
+                  : pathname.startsWith(item.path);
+
             return (
               <Link
-                key={item.path}
+                key={item.label}
                 href={item.path}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all ${
                   isActive
@@ -86,6 +116,25 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
             );
           })}
         </nav>
+
+        {/* Bottom Actions Section */}
+        <div className="p-3 border-t border-sidebar-border space-y-1">
+          <Link
+            href="/connect"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-primary hover:bg-primary/10 transition-all font-medium"
+          >
+            <PlusCircle className="w-5 h-5 shrink-0" />
+            {(!collapsed || isMobileMenuOpen) && <span>Connect New DB</span>}
+          </Link>
+          
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-destructive hover:bg-destructive/10 transition-all font-medium"
+          >
+            <LogOut className="w-5 h-5 shrink-0" />
+            {(!collapsed || isMobileMenuOpen) && <span>Logout</span>}
+          </button>
+        </div>
 
         <button
           onClick={() => setCollapsed(!collapsed)}
