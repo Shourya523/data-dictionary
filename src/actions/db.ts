@@ -1,24 +1,34 @@
 "use server";
 
-import postgres from 'postgres';
 import { db } from "../db";
 import { connections } from "../db/schema";
 import { revalidatePath } from "next/cache";
 import { eq, and, sql } from "drizzle-orm";
-import mysql from 'mysql2/promise';
-import snowflake from 'snowflake-sdk';
+
+// --- Lazy Loader Helpers (Prevents Client-Side Bundle Errors) ---
+const getPostgres = async () => (await import('postgres')).default;
+const getMySQL = async () => (await import('mysql2/promise')).default;
+const getSnowflake = async () => (await import('snowflake-sdk')).default;
+
+async function executeQuery(uri: string, sqlText: string) {
+  if (uri.startsWith('postgres')) {
+    const postgres = await getPostgres();
+    const sqlConnection = postgres(uri, { max: 1 });
+    try {
+      return await sqlConnection.unsafe(sqlText);
+    } finally {
+      await sqlConnection.end();
+    }
+  }
+  return [];
+}
 
 export async function getDatabaseMetadata(connectionString: string) {
-  // Ensure the string exists and trim whitespace
   const uri = connectionString?.trim();
   if (!uri) return { success: false, error: "Connection string is required." };
 
-  const isPostgres = uri.startsWith('postgres');
-  const isMySQL = uri.startsWith('mysql');
-  const isSnowflake = uri.startsWith('snowflake');
-
-  // --- POSTGRESQL ---
-  if (isPostgres) {
+  if (uri.startsWith('postgres')) {
+    const postgres = await getPostgres();
     const sqlConnection = postgres(uri, { max: 1, connect_timeout: 10 });
     try {
       const schemaInfo = await sqlConnection`
@@ -67,8 +77,8 @@ export async function getDatabaseMetadata(connectionString: string) {
     }
   }
 
-  // --- MYSQL ---
-  if (isMySQL) {
+  if (uri.startsWith('mysql')) {
+    const mysql = await getMySQL();
     let connection;
     try {
       connection = await mysql.createConnection(uri);
@@ -91,70 +101,27 @@ export async function getDatabaseMetadata(connectionString: string) {
     }
   }
 
-  // --- SNOWFLAKE ---
-  if (isSnowflake) {
+  if (uri.startsWith('snowflake')) {
+    const snowflake = await getSnowflake();
     try {
-      // Safely parse URL
       const url = new URL(uri);
-      const account = url.hostname;
-      const username = decodeURIComponent(url.username);
-      const password = decodeURIComponent(url.password);
-
-      // Handle path parts safely
-      const pathParts = url.pathname.split('/').filter(Boolean);
-      const database = pathParts[0];
-      const schema = pathParts[1] || 'PUBLIC';
-      const warehouse = url.searchParams.get('warehouse') || undefined;
-
       const connection = snowflake.createConnection({
-        account,
-        username,
-        password,
-        database,
-        schema,
-        warehouse
+        account: url.hostname,
+        username: decodeURIComponent(url.username),
+        password: decodeURIComponent(url.password),
+        database: url.pathname.split('/')[1],
+        schema: url.pathname.split('/')[2] || 'PUBLIC',
+        warehouse: url.searchParams.get('warehouse') || undefined
       });
 
-      const connect = () => new Promise((resolve, reject) => {
-        connection.connect((err, conn) => err ? reject(err) : resolve(conn));
-      });
-
-      const execute = (sqlText: string) => new Promise((resolve, reject) => {
-        connection.execute({
-          sqlText,
-          complete: (err, stmt, rows) => err ? reject(err) : resolve(rows)
-        });
+      const connect = () => new Promise((res, rej) => connection.connect((err, conn) => err ? rej(err) : res(conn)));
+      const execute = (sqlText: string) => new Promise((res, rej) => {
+        connection.execute({ sqlText, complete: (err, stmt, rows) => err ? rej(err) : res(rows) });
       });
 
       await connect();
-
-      const schemaInfo: any = await execute(`
-        SELECT table_name, column_name, data_type 
-        FROM information_schema.columns 
-        WHERE table_schema = '${schema.toUpperCase()}'
-        ORDER BY table_name, ordinal_position
-      `);
-
-      const counts: any = await execute(`
-        SELECT table_name, row_count 
-        FROM information_schema.tables 
-        WHERE table_schema = '${schema.toUpperCase()}'
-      `);
-
-      // Important: Snowflake connections should be closed, but the SDK 
-      // handle is different; for metadata, we destroy the connection after use.
-      await new Promise<void>((resolve, reject) => {
-        connection.destroy((err) => {
-          if (err) {
-            console.error('Failed to close Snowflake connection:', err);
-            // We don't necessarily want to fail the whole request if 
-            // the data was already fetched but the close failed
-            resolve();
-          } else {
-            resolve();
-          }
-        });
-      });
+      const schemaInfo: any = await execute(`SELECT table_name, column_name, data_type FROM information_schema.columns ORDER BY table_name`);
+      const counts: any = await execute(`SELECT table_name, row_count FROM information_schema.tables`);
 
       return { success: true, data: { schema: schemaInfo, counts: counts } };
     } catch (error: any) {
@@ -162,25 +129,52 @@ export async function getDatabaseMetadata(connectionString: string) {
     }
   }
 
-  return { success: false, error: "Unsupported database provider. Please check your connection string prefix." };
+  return { success: false, error: "Unsupported provider." };
+}
+
+export async function getDatabaseRelations(uri: string) {
+  try {
+    const metadata = await getDatabaseMetadata(uri);
+    if (!metadata.success || !metadata.data) return metadata;
+
+    const relQuery = `
+      SELECT
+          tc.table_name AS source_table, 
+          kcu.column_name AS source_column, 
+          ccu.table_name AS target_table,
+          ccu.column_name AS target_column
+      FROM 
+          information_schema.table_constraints AS tc 
+          JOIN information_schema.key_column_usage AS kcu
+            ON tc.constraint_name = kcu.constraint_name
+          JOIN information_schema.constraint_column_usage AS ccu
+            ON ccu.constraint_name = tc.constraint_name
+      WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public';
+    `;
+
+    const relations = await executeQuery(uri, relQuery);
+
+    return { 
+      success: true, 
+      data: { 
+        schema: metadata.data.schema, 
+        relations: relations 
+      } 
+    };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
 }
 
 export async function getTableDetails(connectionString: string, tableName: string) {
+  const postgres = await getPostgres();
   const sqlConnection = postgres(connectionString, { max: 1, connect_timeout: 10 });
   try {
     const columns = await sqlConnection`
-      SELECT 
-        column_name as name, 
-        data_type as type, 
-        is_nullable,
-        column_default
-      FROM 
-        information_schema.columns 
-      WHERE 
-        table_name = ${tableName}
-        AND table_schema = 'public'
-      ORDER BY 
-        ordinal_position;
+      SELECT column_name as name, data_type as type, is_nullable, column_default
+      FROM information_schema.columns 
+      WHERE table_name = ${tableName} AND table_schema = 'public'
+      ORDER BY ordinal_position;
     `;
     return { success: true, data: columns };
   } catch (error: any) {
@@ -191,6 +185,7 @@ export async function getTableDetails(connectionString: string, tableName: strin
 }
 
 export async function getSingleTableDetails(connectionString: string, tableName: string) {
+  const postgres = await getPostgres();
   const sqlConnection = postgres(connectionString, { max: 1 });
   try {
     const columns = await sqlConnection`
@@ -237,6 +232,7 @@ export async function getSingleTableDetails(connectionString: string, tableName:
 }
 
 export async function getTableRows(connectionString: string, tableName: string, page = 1, pageSize = 50) {
+  const postgres = await getPostgres();
   const sqlConnection = postgres(connectionString, { max: 1 });
   const offset = (page - 1) * pageSize;
   try {
@@ -251,25 +247,10 @@ export async function getTableRows(connectionString: string, tableName: string, 
 
 export const getDbInventory = async () => {
   try {
-    const tables = await db.execute(sql`
-      SELECT table_name 
-      FROM information_schema.tables 
-      WHERE table_schema = 'public'
-    `);
-
-    const columns = await db.execute(sql`
-      SELECT table_name, column_name, data_type 
-      FROM information_schema.columns 
-      WHERE table_schema = 'public'
-      ORDER BY table_name;
-    `);
-
-    return {
-      tables: tables.rows,
-      columns: columns.rows
-    };
+    const tables = await db.execute(sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`);
+    const columns = await db.execute(sql`SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' ORDER BY table_name`);
+    return { tables: tables.rows, columns: columns.rows };
   } catch (error) {
-    console.error("Database metadata fetch failed:", error);
     throw new Error("Failed to fetch schema");
   }
 };
@@ -279,30 +260,21 @@ export const getConnectionStringById = async (id: string, userId: string) => {
     const [conn] = await db
       .select({ tableUri: connections.tableUri })
       .from(connections)
-      .where(
-        and(
-          eq(connections.id, id),
-          eq(connections.userId, userId)
-        )
-      )
+      .where(and(eq(connections.id, id), eq(connections.userId, userId)))
       .limit(1);
-
     return conn?.tableUri || null;
   } catch (error) {
-    console.error("Failed to find connection string:", error);
     return null;
   }
 };
 
 export const getSchemaDocumentation = async (connectionId: string, userId: string) => {
   try {
-    // 1. First verify the user actually owns this connection for security
     const connString = await getConnectionStringById(connectionId, userId);
     if (!connString) {
       return { success: false, error: "Unauthorized or connection not found." };
     }
 
-    // 2. Fetch all documentation for this connection
     const { schemaKnowledge } = await import('../db/schema');
     const docs = await db
       .select({
@@ -328,26 +300,15 @@ export const saveConnection = async (values: {
   uri: string;
 }) => {
   try {
-    // 1. Check if this URI already exists for this specific user
     const [existingConn] = await db
       .select({ id: connections.id })
       .from(connections)
-      .where(
-        and(
-          eq(connections.userId, values.userId),
-          eq(connections.tableUri, values.uri)
-        )
-      )
+      .where(and(eq(connections.userId, values.userId), eq(connections.tableUri, values.uri)))
       .limit(1);
 
-    // 2. If it exists, return the existing ID immediately
-    if (existingConn) {
-      return { success: true, id: existingConn.id, alreadyExists: true };
-    }
+    if (existingConn) return { success: true, id: existingConn.id, alreadyExists: true };
 
-    // 3. Otherwise, create a new one
     const newId = crypto.randomUUID();
-
     await db.insert(connections).values({
       id: newId,
       userId: values.userId,
@@ -358,21 +319,15 @@ export const saveConnection = async (values: {
 
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/tables");
-
     return { success: true, id: newId, alreadyExists: false };
   } catch (error: any) {
-    console.error("Database save failed:", error);
     return { success: false, error: error.message };
   }
 };
 
 export const getUserConnections = async (userId: string) => {
   try {
-    const userConns = await db
-      .select()
-      .from(connections)
-      .where(eq(connections.userId, userId));
-
+    const userConns = await db.select().from(connections).where(eq(connections.userId, userId));
     return { success: true, data: userConns };
   } catch (error: any) {
     return { success: false, error: error.message };
@@ -380,8 +335,7 @@ export const getUserConnections = async (userId: string) => {
 };
 
 export async function getTableQuality(connectionString: string, tableName: string, columns: any[]) {
-  const isPostgres = connectionString.startsWith('postgres');
-  // For brevity, using Postgres logic; similar patterns apply to MySQL/Snowflake
+  const postgres = await getPostgres();
   const sql = postgres(connectionString, { max: 1 });
 
   try {
@@ -423,25 +377,41 @@ export async function getTableQuality(connectionString: string, tableName: strin
 
 export async function deleteConnection(connectionId: string, userId: string) {
   try {
-    // Ensure the user can only delete their own connections
-    const result = await db
-      .delete(connections)
-      .where(
-        and(
-          eq(connections.id, connectionId),
-          eq(connections.userId, userId)
-        )
-      )
-      .returning({ deletedId: connections.id });
-
-    if (result.length === 0) {
-      return { success: false, error: "Connection not found or unauthorized." };
-    }
-
-    // Refresh the connections page cache
+    const result = await db.delete(connections).where(and(eq(connections.id, connectionId), eq(connections.userId, userId))).returning({ deletedId: connections.id });
+    if (result.length === 0) return { success: false, error: "Unauthorized." };
     revalidatePath("/dashboard/connections");
 
     return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function runCustomQuery(connectionId: string, userId: string | undefined, sqlText: string) {
+  try {
+    const FALLBACK_URI = "postgresql://neondb_owner:npg_RurVIE0FdTc1@ep-morning-morning-aiknmhke-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+    
+    let uri = "";
+    if (connectionId === "demo-neon-db" || !userId) {
+      uri = FALLBACK_URI;
+    } else {
+      uri = await getConnectionStringById(connectionId, userId) || FALLBACK_URI;
+    }
+
+    if (!uri) throw new Error("Connection not found");
+
+    if (uri.startsWith('postgres')) {
+      const postgres = await getPostgres();
+      const sqlConnection = postgres(uri, { max: 1 });
+      try {
+        const result = await sqlConnection.unsafe(sqlText);
+        return { success: true, data: JSON.parse(JSON.stringify(result)) };
+      } finally {
+        await sqlConnection.end();
+      }
+    }
+    
+    return { success: false, error: "Only PostgreSQL is supported for custom queries at this time." };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
