@@ -36,10 +36,11 @@ const HeroSection = () => {
                 <ArrowRight className="ml-2 w-4 h-4" />
               </Button>
             </Link>
-
+            <Link href="/dashboard">
             <Button size="lg" variant="outline" className="h-12 px-8">
               View Demo
             </Button>
+            </Link>
           </div>
         </motion.div>
 
