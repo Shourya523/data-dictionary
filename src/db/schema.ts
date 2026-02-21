@@ -56,3 +56,31 @@ export const connections = pgTable("connections", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// Metadata Tables
+export const entities = pgTable("entities", {
+  id: text("id").primaryKey(),
+  connectionId: text("connection_id").notNull().references(() => connections.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const fields = pgTable("fields", {
+  id: text("id").primaryKey(),
+  entityId: text("entity_id").notNull().references(() => entities.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  isNullable: boolean("is_nullable").notNull().default(true),
+  isPrimaryKey: boolean("is_primary_key").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const relationships = pgTable("relationships", {
+  id: text("id").primaryKey(),
+  sourceFieldId: text("source_field_id").notNull().references(() => fields.id, { onDelete: 'cascade' }),
+  targetFieldId: text("target_field_id").notNull().references(() => fields.id, { onDelete: 'cascade' }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
