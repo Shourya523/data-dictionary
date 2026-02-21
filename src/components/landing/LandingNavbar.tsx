@@ -109,7 +109,7 @@ const LandingNavbar = () => {
 
           {!session ? (
             <Button size="sm" className="w-full" onClick={handleGoogleSignIn}>
-              Start Free
+              Log In
             </Button>
           ) : (
             <Button size="sm" className="w-full" asChild onClick={handleSignOut}>
