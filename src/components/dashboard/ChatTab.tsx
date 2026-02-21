@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { Loader2, DatabaseZap, Send, Bot, User, AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/src/components/ui/button";
 import { Input } from "@/src/components/ui/input";
@@ -9,9 +9,23 @@ import { checkEmbeddingStatus, embedDocumentationData, chatWithSchema } from "@/
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 
+import {
+    HoverCard,
+    HoverCardContent,
+    HoverCardTrigger,
+} from "@/src/components/ui/hover-card";
+import Image from "next/image";
+
+interface Citation {
+    marker: number;
+    entity: string;
+    images: string[];
+}
+
 interface Message {
     role: "user" | "ai";
     content: string;
+    citations?: Citation[];
 }
 
 export function ChatTab({ connectionId }: { connectionId: string }) {
@@ -73,7 +87,7 @@ export function ChatTab({ connectionId }: { connectionId: string }) {
             const res = await chatWithSchema(userMsg, connectionId, chatHistory);
             
             if (res.success && res.answer) {
-                setMessages(prev => [...prev, { role: "ai", content: res.answer }]);
+                setMessages(prev => [...prev, { role: "ai", content: res.answer, citations: res.citations }]);
             } else {
                 toast.error(res.error || "Graph/LLM Inference failed.");
                 setMessages(prev => [...prev, { role: "ai", content: "⚠️ **Error**: Failed to complete inference sequence." }]);
@@ -169,7 +183,55 @@ export function ChatTab({ connectionId }: { connectionId: string }) {
                             ) : (
                                 <ReactMarkdown
                                     components={{
-                                        p: ({ node, ...props }) => <p className="mb-3 last:mb-0 leading-7" {...props} />,
+                                        p: ({ node, children, ...props }) => {
+                                            // Intercept text containing [1], [2], etc.
+                                            // This is a complex but necessary pattern in ReactMarkdown to wrap inline text without breaking parser rules
+                                            const contentArray = React.Children.toArray(children);
+                                            const renderedChildren = contentArray.map((child, i) => {
+                                                if (typeof child === 'string') {
+                                                    const parts = child.split(/(\[\d+\])/g);
+                                                    return parts.map((part, j) => {
+                                                        const match = part.match(/\[(\d+)\]/);
+                                                        if (match && msg.citations) {
+                                                            const marker = parseInt(match[1]);
+                                                            const citation = msg.citations.find(c => c.marker === marker);
+                                                            if (citation && citation.images.length > 0) {
+                                                                return (
+                                                                    <HoverCard key={`cite-${i}-${j}`}>
+                                                                        <HoverCardTrigger asChild>
+                                                                            <span className="inline-flex cursor-pointer text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 px-1 rounded mx-0.5 text-xs font-bold transition-colors">
+                                                                                [{marker}]
+                                                                            </span>
+                                                                        </HoverCardTrigger>
+                                                                        <HoverCardContent side="top" align="center" className="w-[500px] p-0 border shadow-lg bg-card overflow-hidden z-50">
+                                                                            <div className="bg-muted px-3 py-2 border-b flex items-center justify-between">
+                                                                                <span className="text-xs font-semibold">Reference Table: {citation.entity}</span>
+                                                                                <span className="text-[10px] text-muted-foreground uppercase">{citation.images.length} Pages</span>
+                                                                            </div>
+                                                                            <div className="max-h-[350px] overflow-y-auto bg-white p-2 flex flex-col gap-2">
+                                                                                {citation.images.map((imgSrc, imgIdx) => (
+                                                                                    <div key={imgIdx} className="relative w-full border border-border/50 rounded overflow-hidden shadow-sm">
+                                                                                        <img 
+                                                                                            src={imgSrc} 
+                                                                                            alt={`Documentation for ${citation.entity} page ${imgIdx + 1}`} 
+                                                                                            className="w-full h-auto object-contain"
+                                                                                        />
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                        </HoverCardContent>
+                                                                    </HoverCard>
+                                                                );
+                                                            }
+                                                        }
+                                                        return <span key={`text-${i}-${j}`}>{part}</span>;
+                                                    });
+                                                }
+                                                return child;
+                                            });
+
+                                            return <p className="mb-3 last:mb-0 leading-7" {...props}>{renderedChildren}</p>;
+                                        },
                                         code: ({ node, ...props }) => <code className="bg-background border border-border/50 text-blue-600 dark:text-blue-400 px-1 py-0.5 rounded text-xs font-mono" {...props} />,
                                         pre: ({ node, ...props }) => <pre className="bg-zinc-950 p-4 rounded-lg overflow-x-auto my-4 border border-zinc-800 text-zinc-50" {...props} />,
                                         ul: ({ node, ...props }) => <ul className="list-disc ml-4 my-3 [&>li]:mt-1" {...props} />,

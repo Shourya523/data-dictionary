@@ -5,8 +5,8 @@ import Groq from "groq-sdk";
 import { qdrant } from "../lib/qdrant";
 import { v5 as uuidv5 } from "uuid";
 import { db } from "../db";
-import { schemaKnowledge } from "../db/schema";
-import { eq } from "drizzle-orm";
+import { schemaKnowledge, schemaDocImages } from "../db/schema";
+import { eq, and, inArray, asc } from "drizzle-orm";
 import { getSession } from "../lib/neo4j";
 
 const mxbai = new Mixedbread({ apiKey: process.env.MIXEDBREAD_API_KEY! });
@@ -228,9 +228,12 @@ ${vectorContextString}
 
         const answer = chatCompletion.choices[0]?.message?.content || "No response generated.";
 
-        console.log(`[Chat Backend] Groq inference successful.`);
+        // 6. Inject citations and build final response
+        const { answer: finalAnswer, citations } = await buildFinalChatResponse(answer, connectionId, discoveredEntities);
 
-        return { success: true, answer: answer };
+        console.log(`[Chat Backend] Groq inference successful. Generated ${citations.length} citations.`);
+
+        return { success: true, answer: finalAnswer, citations };
 
     } catch (e: any) {
         console.error("Chat Action Error:", e);
@@ -240,4 +243,78 @@ ${vectorContextString}
             await neo4jSession.close();
         }
     }
+}
+
+// Helper: Fetch images for entities
+async function fetchEntityImages(connectionId: string, entities: string[]) {
+    if (!entities || entities.length === 0) return [];
+
+    try {
+        const uniqueEntities = Array.from(new Set(entities));
+        const images = await db
+            .select()
+            .from(schemaDocImages)
+            .where(
+                and(
+                    eq(schemaDocImages.connectionId, connectionId),
+                    inArray(schemaDocImages.entityName, uniqueEntities)
+                )
+            )
+            .orderBy(asc(schemaDocImages.pageNumber));
+
+        const groupedImages = images.reduce((acc: Record<string, string[]>, img) => {
+            if (!acc[img.entityName]) acc[img.entityName] = [];
+            acc[img.entityName].push(img.imagePath);
+            return acc;
+        }, {});
+
+        return Object.keys(groupedImages).map(entity => ({
+            entity: entity,
+            images: groupedImages[entity]
+        }));
+    } catch (err) {
+        console.error("[Chat Backend] Failed to fetch entity images:", err);
+        return [];
+    }
+}
+
+// Helper: Inject citations into the answer
+function injectCitations(answer: string, imageReferences: { entity: string, images: string[] }[]) {
+    let finalAnswer = answer;
+    const citations: any[] = [];
+    let marker = 1;
+
+    for (const ref of imageReferences) {
+        if (citations.length >= 5) break; // Limit to max 5 citations
+        if (ref.images.length === 0) continue; // Skip if no images
+
+        const regex = new RegExp(`\\b(${ref.entity})\\b`, 'i');
+        const match = finalAnswer.match(regex);
+
+        if (match && match.index !== undefined) {
+            // Found entity in text -> Inject immediately after the matched word
+            const injectionPoint = match.index + match[0].length;
+            finalAnswer = finalAnswer.substring(0, injectionPoint) + ` [${marker}]` + finalAnswer.substring(injectionPoint);
+        } else {
+            // Entity not found in text -> Append to the end
+            finalAnswer += finalAnswer.endsWith('\n') ? `\n[${marker}] ${ref.entity} reference` : `\n\n[${marker}] ${ref.entity} reference`;
+        }
+
+        citations.push({
+            marker: marker,
+            entity: ref.entity,
+            images: ref.images
+        });
+        marker++;
+    }
+
+    return { answer: finalAnswer, citations };
+}
+
+// Helper: Build the complete Chat API response
+async function buildFinalChatResponse(answer: string, connectionId: string, discoveredEntities: string[]) {
+    const sortedEntities = Array.from(new Set(discoveredEntities)); // Deduplicate
+    const imageReferences = await fetchEntityImages(connectionId, sortedEntities);
+    const result = injectCitations(answer, imageReferences);
+    return result;
 }
