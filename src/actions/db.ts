@@ -135,7 +135,8 @@ export async function getDatabaseMetadata(connectionString: string) {
 export async function getDatabaseRelations(uri: string) {
   try {
     const metadata = await getDatabaseMetadata(uri);
-    if (!metadata.success) return metadata;
+    // Fixed: Added check for metadata.data
+    if (!metadata.success || !metadata.data) return metadata;
 
     const relQuery = `
       SELECT

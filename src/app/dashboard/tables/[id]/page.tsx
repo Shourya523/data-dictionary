@@ -16,6 +16,8 @@ interface TableInfo {
   rowCount: number;
 }
 
+const FALLBACK_URI = "postgresql://neondb_owner:npg_RurVIE0FdTc1@ep-morning-morning-aiknmhke-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+
 const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
   const { id } = use(params);
   const { data: session, isPending: authLoading } = authClient.useSession();
@@ -24,27 +26,21 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // Action Loading States
   const [isSyncingAI, setIsSyncingAI] = useState(false);
   const [isSyncingTables, setIsSyncingTables] = useState(false);
   const [isGeneratingGraph, setIsGeneratingGraph] = useState(false);
 
+  const getEffectiveUri = async () => {
+    if (!session?.user?.id) return FALLBACK_URI;
+    const uri = await getConnectionStringById(id, session.user.id);
+    return uri || FALLBACK_URI;
+  };
+
   const loadMetadata = async () => {
     if (authLoading) return;
-    if (!session?.user?.id) {
-      setError("Unauthorized access");
-      setLoading(false);
-      return;
-    }
 
     try {
-      const connString = await getConnectionStringById(id, session.user.id);
-      if (!connString) {
-        setError("Connection not found in vault.");
-        setLoading(false);
-        return;
-      }
-
+      const connString = await getEffectiveUri();
       const result = await getDatabaseMetadata(connString);
 
       if (result.success && result.data) {
@@ -79,14 +75,10 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
     loadMetadata();
   }, [id, session, authLoading]);
 
-  // ACTION 1: Sync AI Knowledge (Vector/Qdrant)
   const handleSyncAI = async () => {
-    if (!session?.user?.id) return;
     setIsSyncingAI(true);
     try {
-      const connString = await getConnectionStringById(id, session.user.id);
-      if (!connString) throw new Error("Connection string missing");
-
+      const connString = await getEffectiveUri();
       const result = await indexRemoteDatabase(id, connString);
       if (result.success) {
         console.log("AI Index synced successfully!");
@@ -100,16 +92,12 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
     }
   };
 
-  // ACTION 2: Sync Table Metadata (Internal Relational DB)
   const handleSyncTables = async () => {
-    if (!session?.user?.id) return;
     setIsSyncingTables(true);
     try {
-      const connString = await getConnectionStringById(id, session.user.id);
-      if (!connString) throw new Error("Connection disappeared");
-
+      const connString = await getEffectiveUri();
       const result = await getDatabaseMetadata(connString);
-      if (!result.success || !result.data) throw new Error("Failed to fetch fresh schema metadata");
+      if (!result.success || !result.data) throw new Error("Failed to fetch fresh metadata");
 
       const { syncTableMetadata } = await import('../../../../actions/metadata');
       
@@ -132,16 +120,12 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
     }
   };
 
-  // ACTION 3: Build Inference Graph
   const handleGenerateInference = async () => {
-    if (!session?.user?.id) return;
     setIsGeneratingGraph(true);
     try {
       const { buildGraphForInference } = await import('../../../../actions/graphBuilder');
       const result = await buildGraphForInference(id);
-
       if (!result.success) throw new Error(result.error || "Failed to construct Graph DB.");
-
       alert("Graph successfully constructed for LLM inference.");
     } catch (err: any) {
       setError(err.message || "An error occurred generating the graph");
@@ -164,6 +148,7 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
             <h1 className="text-2xl font-bold tracking-tight">Database Schema</h1>
             <p className="text-sm text-muted-foreground mt-1 text-wrap max-w-md">
               Live inspection for <span className="font-mono text-primary text-xs bg-primary/5 px-1.5 py-0.5 rounded">{id}</span>
+              {!session?.user?.id && <span className="ml-2 text-[10px] bg-amber-500/10 text-amber-600 px-2 py-0.5 rounded border border-amber-500/20 font-bold uppercase tracking-tighter">Guest Mode</span>}
             </p>
           </div>
 

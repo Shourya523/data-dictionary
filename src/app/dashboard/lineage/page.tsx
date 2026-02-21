@@ -10,7 +10,9 @@ import {
   ConnectionLineType,
   Handle,
   Position,
-  MarkerType 
+  MarkerType,
+  Node,
+  Edge 
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import dagre from "dagre";
@@ -21,11 +23,12 @@ import { authClient } from "@/src/components/landing/auth";
 import { Card } from "../../../components/ui/card";
 import { Loader2, Table2, Network } from "lucide-react";
 
-// --- Dagre Layout Engine ---
+const HARDCODED_URI = "postgresql://neondb_owner:npg_RurVIE0FdTc1@ep-morning-morning-aiknmhke-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+
 const dagreGraph = new dagre.graphlib.Graph();
 dagreGraph.setDefaultEdgeLabel(() => ({}));
 
-const getLayoutedElements = (nodes: any[], edges: any[]) => {
+const getLayoutedElements = (nodes: Node[], edges: Edge[]) => {
   dagreGraph.setGraph({ rankdir: 'LR', nodesep: 100, ranksep: 250 });
   nodes.forEach((node) => dagreGraph.setNode(node.id, { width: 250, height: 250 }));
   edges.forEach((edge) => dagreGraph.setEdge(edge.source, edge.target));
@@ -52,8 +55,8 @@ const TableNode = ({ data }: any) => (
       <div className="p-2 space-y-1 bg-background/50">
         {data.columns.map((col: string) => (
           <div key={col} className="text-[10px] font-mono flex items-center justify-between px-1 py-0.5 border-b border-border/10 last:border-0">
-            <span className={col.includes('id') ? "text-primary font-bold" : "text-muted-foreground"}>{col}</span>
-            {col.includes('id') && <span className="text-[7px] bg-primary/10 text-primary px-1 rounded font-bold">FK</span>}
+            <span className={col.toLowerCase().includes('id') ? "text-primary font-bold" : "text-muted-foreground"}>{col}</span>
+            {col.toLowerCase().includes('id') && <span className="text-[7px] bg-primary/10 text-primary px-1 rounded font-bold">KEY</span>}
           </div>
         ))}
       </div>
@@ -63,37 +66,51 @@ const TableNode = ({ data }: any) => (
 );
 
 const nodeTypes = { table: TableNode };
-
-// Remove watermark configuration
 const proOptions = { hideAttribution: true };
 
 export default function LineagePage() {
-  const { data: session } = authClient.useSession();
+  const { data: session, isPending } = authClient.useSession();
   const [connections, setConnections] = useState<any[]>([]);
   const [selectedConn, setSelectedConn] = useState("");
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (session?.user?.id) {
-      getUserConnections(session.user.id).then((res) => {
-        if (res.success) setConnections(res.data || []);
-      });
+    if (!isPending) {
+      if (session?.user?.id) {
+        getUserConnections(session.user.id).then((res) => {
+          if (res.success) setConnections(res.data || []);
+        });
+      } else {
+        visualizeLineage("demo-mode");
+      }
     }
-  }, [session]);
+  }, [session, isPending]);
 
   const visualizeLineage = async (connId: string) => {
-    if (!connId || !session?.user?.id) return;
+    if (!connId) return;
     setSelectedConn(connId);
     setLoading(true);
 
     try {
-      const uri = await getConnectionStringById(connId, session.user.id);
-      const res = await getDatabaseRelations(uri!);
+      let uri = "";
+      
+      if (connId === "demo-mode") {
+        uri = HARDCODED_URI;
+      } else if (session?.user?.id) {
+        uri = (await getConnectionStringById(connId, session.user.id)) || "";
+      }
+
+      if (!uri) throw new Error("No connection string found");
+
+      const res = await getDatabaseRelations(uri);
 
       if (res.success && res.data) {
-        const tableGroups: Record<string, string[]> = res.data.schema.reduce((acc: any, curr: any) => {
+        const data = res.data as any; 
+        
+        const tableGroups: Record<string, string[]> = data.schema.reduce((acc: any, curr: any) => {
           const tableName = curr.table_name || curr.TABLE_NAME;
           const columnName = curr.column_name || curr.COLUMN_NAME;
           if (!acc[tableName]) acc[tableName] = [];
@@ -101,14 +118,16 @@ export default function LineagePage() {
           return acc;
         }, {});
 
-        const initialNodes = Object.entries(tableGroups).map(([name, columns]) => ({
+        const initialNodes: Node[] = Object.entries(tableGroups).map(([name, columns]) => ({
           id: name,
           type: 'table',
           position: { x: 0, y: 0 },
           data: { label: name, columns },
         }));
 
-        const initialEdges = res.data.relations.map((rel: any, i: number) => ({
+        const relations = data.relations || [];
+
+        const initialEdges: Edge[] = relations.map((rel: any, i: number) => ({
           id: `e-${i}`,
           source: rel.source_table,
           target: rel.target_table,
@@ -119,11 +138,12 @@ export default function LineagePage() {
         }));
 
         const { nodes: lNodes, edges: lEdges } = getLayoutedElements(initialNodes, initialEdges);
-        setNodes(lNodes);
-        setEdges(lEdges);
+        
+        setNodes(lNodes as Node[]);
+        setEdges(lEdges as Edge[]);
       }
     } catch (err) {
-      console.error(err);
+      console.error("Lineage Error:", err);
     } finally {
       setLoading(false);
     }
@@ -131,35 +151,34 @@ export default function LineagePage() {
 
   return (
     <DashboardLayout>
-      {/* Custom styles to darken the controls */}
       <style jsx global>{`
         .react-flow__controls-button {
           background-color: #1a1a1a !important;
           fill: white !important;
           border-bottom: 1px solid #333 !important;
         }
-        .react-flow__controls-button:hover {
-          background-color: #333 !important;
-        }
-        .react-flow__controls-button svg {
-          fill: white !important;
-        }
+        .react-flow__controls-button:hover { background-color: #333 !important; }
+        .react-flow__controls-button svg { fill: white !important; }
       `}</style>
 
       <div className="h-[calc(100vh-8rem)] flex flex-col">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Data Lineage</h1>
-            <p className="text-sm text-muted-foreground">Visualize data flow and table relationships.</p>
+            <p className="text-sm text-muted-foreground">
+              {session ? "Visualize flow between interconnected tables." : "Viewing demo database lineage."}
+            </p>
           </div>
-          <select 
-            className="h-10 w-64 rounded-md border border-input bg-background px-3 text-sm focus:ring-2 focus:ring-primary outline-none"
-            onChange={(e) => visualizeLineage(e.target.value)}
-            value={selectedConn}
-          >
-            <option value="">Select Connection...</option>
-            {connections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          {session && (
+            <select 
+              className="h-10 w-64 rounded-md border border-input bg-background px-3 text-sm focus:ring-2 focus:ring-primary outline-none"
+              onChange={(e) => visualizeLineage(e.target.value)}
+              value={selectedConn}
+            >
+              <option value="">Select Connection...</option>
+              {connections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          )}
         </div>
 
         <div className="flex-1 border rounded-2xl bg-muted/5 relative overflow-hidden shadow-inner">
@@ -169,7 +188,7 @@ export default function LineagePage() {
             </div>
           )}
           
-          {!selectedConn && !loading && (
+          {!selectedConn && !loading && session && (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground">
               <Network className="w-12 h-12 mb-4 opacity-20" />
               <p className="text-sm font-medium">Select a connection to view lineage map</p>

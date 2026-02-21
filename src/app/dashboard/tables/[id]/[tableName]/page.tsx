@@ -9,6 +9,8 @@ import { Badge } from "../../../../../components/ui/badge";
 import { Button } from "../../../../../components/ui/button";
 import { authClient } from "@/src/components/landing/auth";
 
+const FALLBACK_URI = "postgresql://neondb_owner:npg_RurVIE0FdTc1@ep-morning-morning-aiknmhke-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+
 export default function TableDetailPage({ params }: { params: Promise<{ id: string; tableName: string }> }) {
   const { id, tableName } = use(params);
   const { data: session, isPending: authLoading } = authClient.useSession();
@@ -20,20 +22,19 @@ export default function TableDetailPage({ params }: { params: Promise<{ id: stri
   const [loadingRows, setLoadingRows] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const getEffectiveUri = async () => {
+    if (!session?.user?.id) return FALLBACK_URI;
+    const uri = await getConnectionStringById(id, session.user.id);
+    return uri || FALLBACK_URI;
+  };
+
   useEffect(() => {
     async function initLoad() {
       if (authLoading) return;
-      if (!session?.user?.id || !tableName) return;
+      if (!tableName) return;
 
       try {
-        // Resolve the connection string dynamically from the ID in the path
-        const uri = await getConnectionStringById(id, session.user.id);
-        
-        if (!uri) {
-          setError("Connection string not found in vault.");
-          setLoading(false);
-          return;
-        }
+        const uri = await getEffectiveUri();
 
         // Load Schema Definition
         const colResult = await getSingleTableDetails(uri, tableName);
@@ -59,12 +60,10 @@ export default function TableDetailPage({ params }: { params: Promise<{ id: stri
   }, [id, tableName, session, authLoading]);
 
   const fetchNextPage = async () => {
-    if (!session?.user?.id) return;
     setLoadingRows(true);
-    
     try {
-      const uri = await getConnectionStringById(id, session.user.id);
-      const result = await getTableRows(uri!, tableName, page);
+      const uri = await getEffectiveUri();
+      const result = await getTableRows(uri, tableName, page);
       
       if (result.success && result.data) {
         setRows(prev => [...prev, ...result.data]);
@@ -101,7 +100,7 @@ export default function TableDetailPage({ params }: { params: Promise<{ id: stri
             </div>
             <div>
               <h1 className="text-2xl font-bold font-mono uppercase tracking-tight">{tableName}</h1>
-              <p className="text-xs text-muted-foreground uppercase tracking-widest mt-1">Detailed Inspection</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-widest mt-1">Detailed Inspection {!session?.user?.id && "(Guest Mode)"}</p>
             </div>
           </div>
         </div>
@@ -114,7 +113,6 @@ export default function TableDetailPage({ params }: { params: Promise<{ id: stri
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-8">
-          {/* SCHEMA SECTION */}
           <section>
             <div className="flex items-center gap-2 mb-4">
               <Database className="w-4 h-4 text-muted-foreground" />
@@ -156,7 +154,6 @@ export default function TableDetailPage({ params }: { params: Promise<{ id: stri
             </div>
           </section>
 
-          {/* DATA PREVIEW SECTION */}
           <section className="pb-20">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
