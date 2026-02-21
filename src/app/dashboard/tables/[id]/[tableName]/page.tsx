@@ -135,12 +135,17 @@ export default function TableDetailPage({ params }: { params: Promise<{ id: stri
                       <td className="px-6 py-3.5 font-mono font-bold text-primary">{col.name}</td>
                       <td className="px-6 py-3.5 text-muted-foreground font-mono text-xs">{col.type}</td>
                       <td className="px-6 py-3.5 text-right">
-                        <div className="flex justify-end gap-2">
+                        <div className="flex justify-end gap-2 flex-wrap">
                           {col.is_nullable === "NO" && (
                             <Badge variant="outline" className="text-[10px] bg-muted">NOT NULL</Badge>
                           )}
-                          {(col.name.includes('id') || col.is_primary) && (
-                            <Badge variant="outline" className="text-[10px] border-primary/20 text-primary/80">KEY</Badge>
+                          {col.is_primary_key && (
+                            <Badge variant="outline" className="text-[10px] border-amber-500/50 text-amber-600 bg-amber-500/10">PK</Badge>
+                          )}
+                          {col.is_foreign_key && col.foreign_table_name && col.foreign_column_name && (
+                            <Badge variant="outline" className="text-[10px] border-blue-500/50 text-blue-600 bg-blue-500/10 gap-1 flex items-center">
+                              FK <span className="opacity-50">→</span> {col.foreign_table_name}.{col.foreign_column_name}
+                            </Badge>
                           )}
                         </div>
                       </td>

@@ -2,11 +2,13 @@
 
 import { useEffect, useState, use } from "react";
 import DashboardLayout from "../../../../components/dashboard/DashboardLayout";
-import { Table2, Eye, Loader2, AlertCircle, Database, ArrowLeft } from "lucide-react";
+import { Table2, Eye, Loader2, AlertCircle, Database, ArrowLeft, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { getDatabaseMetadata, getConnectionStringById } from "../../../../actions/db";
+import { indexRemoteDatabase } from "../../../../actions/rag";
 import { Button } from "@/src/components/ui/button";
 import { authClient } from "@/src/components/landing/auth";
+import { ChatDrawer } from "@/src/components/chatDrawer";
 
 interface TableInfo {
   name: string;
@@ -21,78 +23,183 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Action Loading States
+  const [isSyncingAI, setIsSyncingAI] = useState(false);
+  const [isSyncingTables, setIsSyncingTables] = useState(false);
+  const [isGeneratingGraph, setIsGeneratingGraph] = useState(false);
 
-  useEffect(() => {
-    async function loadMetadata() {
-      if (authLoading) return;
-      if (!session?.user?.id) {
-        setError("Unauthorized access");
+  const loadMetadata = async () => {
+    if (authLoading) return;
+    if (!session?.user?.id) {
+      setError("Unauthorized access");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const connString = await getConnectionStringById(id, session.user.id);
+      if (!connString) {
+        setError("Connection not found in vault.");
         setLoading(false);
         return;
       }
 
-      try {
-        const connString = await getConnectionStringById(id, session.user.id);
+      const result = await getDatabaseMetadata(connString);
 
-        if (!connString) {
-          setError("Connection not found in vault.");
-          setLoading(false);
-          return;
-        }
+      if (result.success && result.data) {
+        const { schema, counts } = result.data;
+        const organized = schema.reduce((acc: any, curr: any) => {
+          if (!acc[curr.table_name]) acc[curr.table_name] = [];
+          acc[curr.table_name].push(curr.column_name);
+          return acc;
+        }, {});
 
-        const result = await getDatabaseMetadata(connString);
+        const formattedTables = Object.entries(organized).map(([name, columns]) => {
+          const countObj = counts.find((c: any) => c.table_name === name);
+          return {
+            name,
+            columns: columns as string[],
+            rowCount: countObj ? parseInt(countObj.row_count) : 0,
+          };
+        });
 
-        if (result.success && result.data) {
-          const { schema, counts } = result.data;
-
-          const organized = schema.reduce((acc: any, curr: any) => {
-            if (!acc[curr.table_name]) acc[curr.table_name] = [];
-            acc[curr.table_name].push(curr.column_name);
-            return acc;
-          }, {});
-
-          const formattedTables = Object.entries(organized).map(([name, columns]) => {
-            const countObj = counts.find((c: any) => c.table_name === name);
-            return {
-              name,
-              columns: columns as string[],
-              rowCount: countObj ? parseInt(countObj.row_count) : 0,
-            };
-          });
-
-          setTables(formattedTables);
-        } else {
-          setError(result.error || "Failed to fetch schema");
-        }
-      } catch (err: any) {
-        setError("An unexpected error occurred while connecting.");
-      } finally {
-        setLoading(false);
+        setTables(formattedTables);
+      } else {
+        setError(result.error || "Failed to fetch schema");
       }
+    } catch (err: any) {
+      setError("An unexpected error occurred while connecting.");
+    } finally {
+      setLoading(false);
     }
+  };
 
+  useEffect(() => {
     loadMetadata();
   }, [id, session, authLoading]);
+
+  // ACTION 1: Sync AI Knowledge (Vector/Qdrant)
+  const handleSyncAI = async () => {
+    if (!session?.user?.id) return;
+    setIsSyncingAI(true);
+    try {
+      const connString = await getConnectionStringById(id, session.user.id);
+      if (!connString) throw new Error("Connection string missing");
+
+      const result = await indexRemoteDatabase(id, connString);
+      if (result.success) {
+        console.log("AI Index synced successfully!");
+      } else {
+        setError(result.error || "Failed to sync AI knowledge");
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsSyncingAI(false);
+    }
+  };
+
+  // ACTION 2: Sync Table Metadata (Internal Relational DB)
+  const handleSyncTables = async () => {
+    if (!session?.user?.id) return;
+    setIsSyncingTables(true);
+    try {
+      const connString = await getConnectionStringById(id, session.user.id);
+      if (!connString) throw new Error("Connection disappeared");
+
+      const result = await getDatabaseMetadata(connString);
+      if (!result.success || !result.data) throw new Error("Failed to fetch fresh schema metadata");
+
+      const { syncTableMetadata } = await import('../../../../actions/metadata');
+      
+      const organized = result.data.schema.reduce((acc: any, curr: any) => {
+        if (!acc[curr.table_name]) {
+          acc[curr.table_name] = { name: curr.table_name, columns: [] };
+        }
+        acc[curr.table_name].columns.push(curr);
+        return acc;
+      }, {});
+
+      const syncResult = await syncTableMetadata(id, Object.values(organized));
+      if (!syncResult.success) throw new Error(syncResult.error || "Failed to securely sync metadata");
+      
+      await loadMetadata();
+    } catch (err: any) {
+      setError(err.message || "An error occurred during sync");
+    } finally {
+      setIsSyncingTables(false);
+    }
+  };
+
+  // ACTION 3: Build Inference Graph
+  const handleGenerateInference = async () => {
+    if (!session?.user?.id) return;
+    setIsGeneratingGraph(true);
+    try {
+      const { buildGraphForInference } = await import('../../../../actions/graphBuilder');
+      const result = await buildGraphForInference(id);
+
+      if (!result.success) throw new Error(result.error || "Failed to construct Graph DB.");
+
+      alert("Graph successfully constructed for LLM inference.");
+    } catch (err: any) {
+      setError(err.message || "An error occurred generating the graph");
+    } finally {
+      setIsGeneratingGraph(false);
+    }
+  };
 
   return (
     <DashboardLayout>
       <div className="mb-8 flex flex-col gap-4">
-        <Link 
-          href="/dashboard" 
+        <Link
+          href="/dashboard"
           className="flex items-center text-xs text-muted-foreground hover:text-primary transition-colors w-fit"
         >
           <ArrowLeft className="w-3 h-3 mr-1" /> Back to Connections
         </Link>
-        <div className="flex justify-between items-end">
+        <div className="flex justify-between items-end flex-wrap gap-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Database Schema</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Live inspection for connection <span className="font-mono text-primary text-xs bg-primary/5 px-1.5 py-0.5 rounded">{id}</span>
+            <p className="text-sm text-muted-foreground mt-1 text-wrap max-w-md">
+              Live inspection for <span className="font-mono text-primary text-xs bg-primary/5 px-1.5 py-0.5 rounded">{id}</span>
             </p>
           </div>
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-full text-xs font-medium border border-primary/20">
-            <Database className="w-3 h-3" />
-            External Source Connected
+
+          <div className="flex items-center gap-3">
+            <Button 
+              onClick={handleGenerateInference} 
+              className="gap-2 h-8 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white border-amber-500" 
+              variant="outline" 
+              disabled={isGeneratingGraph || isSyncingTables || isSyncingAI || loading}
+            >
+              {isGeneratingGraph ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
+              {isGeneratingGraph ? "GENERATING..." : "BUILD GRAPH"}
+            </Button>
+
+            <Button 
+              onClick={handleSyncTables} 
+              className="gap-2 h-8 text-xs font-bold" 
+              variant="outline" 
+              disabled={isSyncingTables || isGeneratingGraph || isSyncingAI || loading}
+            >
+              {isSyncingTables ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              {isSyncingTables ? "SYNCING..." : "SYNC TABLES"}
+            </Button>
+
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleSyncAI}
+              disabled={isSyncingAI || isSyncingTables || isGeneratingGraph || loading}
+              className="gap-2 h-8 text-xs font-bold"
+            >
+              {isSyncingAI ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
+              {isSyncingAI ? "SYNCING AI..." : "SYNC AI"}
+            </Button>
+
+            <ChatDrawer connectionId={id} connectionName="Database" />
           </div>
         </div>
       </div>
@@ -103,9 +210,10 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
           <p className="text-sm font-medium animate-pulse uppercase tracking-widest text-muted-foreground">Mapping Data Objects...</p>
         </div>
       ) : error ? (
-        <div className="flex items-center gap-3 p-6 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive">
+        <div className="flex items-center gap-3 p-6 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive mb-6">
           <AlertCircle className="w-5 h-5" />
           <p className="text-sm font-medium">{error}</p>
+          <Button variant="ghost" size="sm" onClick={() => setError(null)} className="ml-auto font-bold uppercase text-[10px]">Dismiss</Button>
         </div>
       ) : (
         <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
@@ -148,7 +256,7 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
                   </td>
                   <td className="px-6 py-4 text-right">
                     <Link href={`/dashboard/tables/${id}/${t.name}`}>
-                      <Button variant="ghost" size="sm" className="h-8 gap-2 hover:bg-primary hover:text-primary-foreground font-bold text-[10px] uppercase tracking-tighter">
+                      <Button variant="ghost" size="sm" className="h-8 gap-2 hover:bg-primary hover:text-primary-foreground font-bold text-[10px] uppercase tracking-tighter transition-all">
                         <Eye className="w-3.5 h-3.5" />
                         Inspect
                       </Button>
@@ -159,8 +267,8 @@ const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
             </tbody>
           </table>
           {tables.length === 0 && (
-            <div className="py-20 text-center text-muted-foreground italic">
-              No tables found in this database.
+            <div className="py-20 text-center text-muted-foreground italic font-mono text-xs">
+              NO TABLES DETECTED IN TARGET SCHEMA.
             </div>
           )}
         </div>

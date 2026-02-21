@@ -72,7 +72,27 @@ export default function ConnectPage() {
       });
 
       if (saveResult.success && "id" in saveResult && saveResult.id) {
-        // Redirection handles the state; localStorage is removed as requested
+        
+        // 3. Immediately sync metadata with detailed column information
+        try {
+           const { syncTableMetadata } = await import('../../actions/metadata');
+           
+           // We re-format the data to match the array structure parsedTables expects
+           const organized = result.data.schema.reduce((acc: any, curr: any) => {
+            if (!acc[curr.table_name]) {
+              acc[curr.table_name] = { name: curr.table_name, columns: [] };
+            }
+            acc[curr.table_name].columns.push(curr);
+            return acc;
+          }, {});
+
+          const parsedTables = Object.values(organized);
+          await syncTableMetadata(saveResult.id, parsedTables);
+        } catch (syncErr) {
+          console.error("Failed to sync metadata silently in background", syncErr);
+        }
+
+        // Redirection handles the state
         router.push(`/dashboard/tables/${saveResult.id}`);
       } else {
         const errorMessage = (saveResult as any).error || "Failed to save connection to vault.";
