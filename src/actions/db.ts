@@ -344,3 +344,29 @@ export async function getTableQuality(connectionString: string, tableName: strin
     await sql.end();
   }
 }
+
+export async function deleteConnection(connectionId: string, userId: string) {
+  try {
+    // Ensure the user can only delete their own connections
+    const result = await db
+      .delete(connections)
+      .where(
+        and(
+          eq(connections.id, connectionId),
+          eq(connections.userId, userId)
+        )
+      )
+      .returning({ deletedId: connections.id });
+
+    if (result.length === 0) {
+      return { success: false, error: "Connection not found or unauthorized." };
+    }
+
+    // Refresh the connections page cache
+    revalidatePath("/dashboard/connections");
+    
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}

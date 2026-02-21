@@ -57,7 +57,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     // { label: "Compliance", icon: ShieldCheck, path: "/dashboard/compliance" },
     { label: "Lineage", icon: GitBranch, path: "/dashboard/lineage" },
     { label: "AI Chat", icon: MessageSquare, path: "/dashboard/chat" },
-    { label: "Settings", icon: Settings, path: "/dashboard/settings" },
+    // { label: "Settings", icon: Settings, path: "/dashboard/settings" },
   ];
 
   return (
