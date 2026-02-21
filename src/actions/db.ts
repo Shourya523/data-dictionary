@@ -5,7 +5,7 @@ import { connections } from "../db/schema";
 import { revalidatePath } from "next/cache";
 import { eq, and, sql } from "drizzle-orm";
 
-// --- Lazy Loader Helpers ---
+// --- Lazy Loader Helpers (Prevents Client-Side Bundle Errors) ---
 const getPostgres = async () => (await import('postgres')).default;
 const getMySQL = async () => (await import('mysql2/promise')).default;
 const getSnowflake = async () => (await import('snowflake-sdk')).default;
@@ -135,7 +135,6 @@ export async function getDatabaseMetadata(connectionString: string) {
 export async function getDatabaseRelations(uri: string) {
   try {
     const metadata = await getDatabaseMetadata(uri);
-    // Fixed: Added check for metadata.data
     if (!metadata.success || !metadata.data) return metadata;
 
     const relQuery = `
@@ -353,6 +352,38 @@ export async function deleteConnection(connectionId: string, userId: string) {
     revalidatePath("/dashboard/connections");
 
     return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function runCustomQuery(connectionId: string, userId: string | undefined, sqlText: string) {
+  try {
+    const FALLBACK_URI = "postgresql://neondb_owner:npg_RurVIE0FdTc1@ep-morning-morning-aiknmhke-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+    
+    let uri = "";
+    // Check if demo or not logged in
+    if (connectionId === "demo-neon-db" || !userId) {
+      uri = FALLBACK_URI;
+    } else {
+      uri = await getConnectionStringById(connectionId, userId) || FALLBACK_URI;
+    }
+
+    if (!uri) throw new Error("Connection not found");
+
+    if (uri.startsWith('postgres')) {
+      const postgres = await getPostgres();
+      const sqlConnection = postgres(uri, { max: 1 });
+      try {
+        const result = await sqlConnection.unsafe(sqlText);
+        // FIX: Stringify then Parse to ensure plain JSON array for the frontend
+        return { success: true, data: JSON.parse(JSON.stringify(result)) };
+      } finally {
+        await sqlConnection.end();
+      }
+    }
+    
+    return { success: false, error: "Only PostgreSQL is supported for custom queries at this time." };
   } catch (error: any) {
     return { success: false, error: error.message };
   }

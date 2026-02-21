@@ -15,6 +15,7 @@ import {
   Menu,
   X,
   PlusCircle,
+  CodeXml,
   LogOut
 } from "lucide-react";
 import { useState, useEffect } from "react";
@@ -56,6 +57,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     { label: "Data Quality", icon: BarChart3, path: "/dashboard/quality" },
     // { label: "Compliance", icon: ShieldCheck, path: "/dashboard/compliance" },
     { label: "Lineage", icon: GitBranch, path: "/dashboard/lineage" },
+    { label: "Query Runner", icon: CodeXml, path: "/dashboard/query" }
 //    { label: "AI Chat", icon: MessageSquare, path: "/dashboard/chat" },
     // { label: "Settings", icon: Settings, path: "/dashboard/settings" },
   ];
