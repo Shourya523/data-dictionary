@@ -5,9 +5,11 @@ import { Button } from "../ui/button";
 import { Database, Menu, X, LogOut } from "lucide-react";
 import { useState } from "react";
 import { authClient } from "./auth";
+import { useRouter } from "next/navigation";
 
 const LandingNavbar = () => {
   const [open, setOpen] = useState(false);
+  const router = useRouter();
   const { data: session, isPending } = authClient.useSession();
 
   const handleGoogleSignIn = async () => {
@@ -21,6 +23,12 @@ const LandingNavbar = () => {
     } catch (error) {
       console.error("Google sign-in error:", error);
     }
+  };
+
+  const handleStartFree = () => {
+
+      router.push("/dashboard");
+ 
   };
 
   const handleSignOut = async () => {
@@ -43,7 +51,6 @@ const LandingNavbar = () => {
         <div className="hidden md:flex absolute left-1/2 -translate-x-1/2 items-center gap-8 text-sm text-muted-foreground">
           <a href="#features" className="hover:text-foreground transition-colors cursor-pointer">Features</a>
           <a href="#how-it-works" className="hover:text-foreground transition-colors cursor-pointer">How It Works</a>
-          {/* <a href="#pricing" className="hover:text-foreground transition-colors cursor-pointer">Pricing</a> */}
         </div>
 
         <div className="hidden md:flex items-center gap-3 ml-auto">
@@ -61,7 +68,7 @@ const LandingNavbar = () => {
               </Button>
               <Button
                 size="sm"
-                onClick={handleGoogleSignIn}
+                onClick={handleStartFree}
               >
                 Start Free
               </Button>
@@ -105,18 +112,25 @@ const LandingNavbar = () => {
         <div className="md:hidden border-t border-border bg-background p-6 space-y-4">
           <a href="#features" className="block text-sm text-muted-foreground">Features</a>
           <a href="#how-it-works" className="block text-sm text-muted-foreground">How It Works</a>
-          <a href="#pricing" className="block text-sm text-muted-foreground">Pricing</a>
 
           {!session ? (
-            <Button size="sm" className="w-full" onClick={handleGoogleSignIn}>
-              Log In
-            </Button>
+            <div className="space-y-2">
+              <Button size="sm" variant="outline" className="w-full" onClick={handleGoogleSignIn}>
+                Log In
+              </Button>
+              <Button size="sm" className="w-full" onClick={handleStartFree}>
+                Start Free
+              </Button>
+            </div>
           ) : (
-            <Button size="sm" className="w-full" asChild onClick={handleSignOut}>
-               <div className="flex items-center justify-center">
+            <>
+              <Button size="sm" className="w-full" asChild>
+                <Link href="/dashboard">Go to Dashboard</Link>
+              </Button>
+              <Button size="sm" variant="ghost" className="w-full text-destructive" onClick={handleSignOut}>
                 <LogOut className="w-4 h-4 mr-2" /> Log Out
-               </div>
-            </Button>
+              </Button>
+            </>
           )}
         </div>
       )}
