@@ -33,6 +33,17 @@ export default function ConnectPage() {
     { id: "snowflake", name: "Snowflake", icon: SiSnowflake, color: "text-[#29B5E8]" },
   ];
 
+  const getPlaceholder = () => {
+    switch (selectedDB) {
+      case "mysql":
+        return "mysql://user:password@host:3306/dbname";
+      case "snowflake":
+        return "snowflake://user:pass@account.region.azure/db/schema?warehouse=wh";
+      default:
+        return "postgresql://user:password@localhost:5432/dbname";
+    }
+  };
+
   const handleConnect = async () => {
     if (!session?.user?.id) {
       setError("No active session found. Please log in.");
@@ -43,7 +54,6 @@ export default function ConnectPage() {
     setError(null);
 
     try {
-      // 1. Validate the connection by fetching metadata
       const result = await getDatabaseMetadata(connString);
 
       if (!result.success || !result.data) {
@@ -52,7 +62,6 @@ export default function ConnectPage() {
         return;
       }
 
-      // 2. Save the connection to the database vault
       const saveResult = await saveConnection({
         userId: session.user.id, 
         name: `${selectedDB?.toUpperCase()} Source`,
@@ -60,15 +69,10 @@ export default function ConnectPage() {
         uri: connString,
       });
 
-      // 3. Type-safe check for the ID
       if (saveResult.success && "id" in saveResult && saveResult.id) {
-        // Store the ID in localStorage for the Sidebar
         localStorage.setItem("last_connection_id", saveResult.id as string);
-        
-        // Redirect to the newly created table list
         router.push(`/dashboard/tables/${saveResult.id}`);
       } else {
-        // If saveResult.success is true but ID is missing, or success is false
         const errorMessage = (saveResult as any).error || "Failed to save connection to vault.";
         setError(errorMessage);
         setIsConnecting(false);
@@ -97,7 +101,10 @@ export default function ConnectPage() {
               className={`relative p-6 cursor-pointer border-2 transition-all hover:shadow-md ${
                 isSelected ? "border-primary bg-primary/5" : "border-border"
               }`}
-              onClick={() => setSelectedDB(db.id as DBType)}
+              onClick={() => {
+                setSelectedDB(db.id as DBType);
+                setConnString(""); // Clear string when switching DB types
+              }}
             >
               {isSelected && (
                 <CheckCircle2 className="absolute top-3 right-3 w-5 h-5 text-primary" />
@@ -121,7 +128,7 @@ export default function ConnectPage() {
               </label>
             </div>
             <Input
-              placeholder={`postgresql://postgres:password@localhost:5432/dbname`}
+              placeholder={getPlaceholder()}
               value={connString}
               onChange={(e) => setConnString(e.target.value)}
               className="h-12 border-2 focus-visible:ring-primary"
