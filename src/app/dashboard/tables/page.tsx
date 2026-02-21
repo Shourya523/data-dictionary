@@ -89,7 +89,7 @@ export default function ConnectionsPage() {
           <h1 className="text-2xl font-bold tracking-tight">Data Sources</h1>
           <p className="text-sm text-muted-foreground">Manage your connected enterprise databases.</p>
         </div>
-        <Link href="/dashboard/connect">
+        <Link href="/connect">
           <Button className="gap-2">
             <Plus className="w-4 h-4" /> Add Connection
           </Button>
