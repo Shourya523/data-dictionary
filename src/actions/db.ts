@@ -416,3 +416,46 @@ export async function runCustomQuery(connectionId: string, userId: string | unde
     return { success: false, error: error.message };
   }
 }
+
+export async function analyzeImpactAction(query: string) {
+  try {
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!apiKey) {
+      throw new Error("GROQ_API_KEY is not configured on the server.");
+    }
+
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          {
+            role: "system",
+            content: "Analyze the provided SQL query. Identify table relationships as a graph. Determine the 'depth' (number of joins/hops). Provide a JSON response: { \"depth\": number, \"relations\": [\"tableA -> tableB\"], \"impact\": \"description\" }"
+          },
+          { role: "user", content: query }
+        ],
+        response_format: { type: "json_object" }
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error?.message || "Groq API Error");
+    }
+
+    if (data.choices && data.choices.length > 0) {
+      return { success: true, data: JSON.parse(data.choices[0].message.content) };
+    }
+    
+    return { success: false, error: "No analysis generated from Groq." };
+  } catch (err: any) {
+    console.error("Groq Analysis Failed", err);
+    return { success: false, error: err.message || "Groq Analysis Failed" };
+  }
+}

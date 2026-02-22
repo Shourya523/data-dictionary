@@ -2,11 +2,11 @@
 
 import { useState, useEffect } from "react";
 import DashboardLayout from "../../../components/dashboard/DashboardLayout";
-import { getUserConnections, runCustomQuery } from "../../../actions/db";
+import { getUserConnections, runCustomQuery, analyzeImpactAction } from "../../../actions/db";
 import { authClient } from "@/src/components/landing/auth";
 import { Button } from "../../../components/ui/button";
 import { Card } from "../../../components/ui/card";
-import { Loader2, Play, Table as TableIcon, AlertCircle, FileJson, Database, ShieldAlert } from "lucide-react";
+import { Loader2, Play, FileJson, Database, ShieldAlert, Zap, Network } from "lucide-react";
 
 const DEMO_ID = "demo-neon-db";
 
@@ -19,22 +19,16 @@ export default function QueryPage() {
     oi.product_id,
     oi.seller_id,
     oi.price,
-    oi.freight_value,
     s.seller_city,
-    s.seller_state,
-    op.payment_type,
-    op.payment_value,
-    orv.review_score,
-    orv.review_comment_message
+    op.payment_type
 FROM olist_order_items_dataset oi
 JOIN olist_sellers_dataset s ON oi.seller_id = s.seller_id
 LEFT JOIN olist_order_payments_dataset op ON oi.order_id = op.order_id
-LEFT JOIN olist_order_reviews_dataset orv ON oi.order_id = orv.order_id
-ORDER BY oi.order_id
 LIMIT 10;`);
   const [results, setResults] = useState<any[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [impactAnalysis, setImpactAnalysis] = useState<{ depth: number; impact: string; relations: string[] } | null>(null);
 
   useEffect(() => {
     const fetchConns = async () => {
@@ -48,34 +42,48 @@ LIMIT 10;`);
     fetchConns();
   }, [session]);
 
+  const analyzeImpactWithGroq = async (query: string) => {
+    const res = await analyzeImpactAction(query);
+    if (res.success) {
+      return res.data;
+    } else {
+      console.error("Groq Analysis Failed", res.error);
+      return null;
+    }
+  };
+
   const execute = async () => {
     const trimmedSql = sqlText.trim();
     if (!trimmedSql) return;
 
     const readOnlyRegex = /^\s*(SELECT|WITH|SHOW|DESCRIBE|EXPLAIN)\b/i;
-    const isReadOnly = readOnlyRegex.test(trimmedSql);
-
-    if (!isReadOnly) {
-      setError("Security Policy: Only read-only queries (SELECT, WITH, SHOW) are permitted in the SQL Lab.");
+    if (!readOnlyRegex.test(trimmedSql)) {
+      setError("Security Policy: Only read-only queries are permitted.");
       return;
     }
 
     setIsRunning(true);
     setError(null);
     setResults([]);
+    setImpactAnalysis(null);
 
     try {
-      const res = await runCustomQuery(selectedConn, session?.user?.id, trimmedSql);
+      const [dbRes, analysis] = await Promise.all([
+        runCustomQuery(selectedConn, session?.user?.id, trimmedSql),
+        analyzeImpactWithGroq(trimmedSql)
+      ]);
 
-      if (res.success) {
-        const data = (res.data as any[]) || [];
+      setImpactAnalysis(analysis);
+
+      if (dbRes.success) {
+        const data = (dbRes.data as any[]) || [];
         setResults(data);
         if (data.length === 0) setError("Query successful, but no rows were returned.");
       } else {
-        setError(res.error || "An error occurred during query execution.");
+        setError(dbRes.error || "An error occurred.");
       }
     } catch (err: any) {
-      setError(err.message || "Connection failed.");
+      setError(err.message || "Execution failed.");
     } finally {
       setIsRunning(false);
     }
@@ -86,101 +94,105 @@ LIMIT 10;`);
       <div className="flex flex-col h-[calc(100vh-8rem)] gap-4 overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">SQL Lab</h1>
-            <p className="text-sm text-muted-foreground">Run direct queries against your connected databases.</p>
+            <h1 className="text-2xl font-bold tracking-tight">SQL Lab <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full ml-2">AI Enhanced</span></h1>
+            <p className="text-sm text-muted-foreground">Run queries with automated graph impact analysis.</p>
           </div>
 
           <div className="flex items-center gap-3">
             <select
-              className="h-10 w-64 rounded-md border border-input bg-background px-3 text-sm focus:ring-2 focus:ring-primary outline-none"
+              className="h-10 w-64 rounded-md border border-input bg-background px-3 text-sm outline-none"
               value={selectedConn}
               onChange={(e) => setSelectedConn(e.target.value)}
             >
               {connections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
 
-            <Button
-              onClick={execute}
-              disabled={isRunning}
-              className="min-w-[120px] shadow-lg shadow-primary/20"
-            >
-              {isRunning ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Play className="w-4 h-4 mr-2" />}
-              Execute
+            <Button onClick={execute} disabled={isRunning} className="min-w-[120px]">
+              {isRunning ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Zap className="w-4 h-4 mr-2" />}
+              Analyze & Run
             </Button>
           </div>
         </div>
 
-        <div className="flex-1 grid grid-rows-2 gap-4 min-h-0 overflow-hidden">
-          <Card className="relative border-2 border-primary/10 overflow-hidden bg-[#0a0a0a] shadow-2xl group">
-            <div className="absolute top-2 right-4 text-[10px] font-bold text-muted-foreground/40 uppercase tracking-widest pointer-events-none select-none group-hover:text-primary transition-colors">
-              SQL Editor
-            </div>
-            <textarea
-              value={sqlText}
-              onChange={(e) => setSqlText(e.target.value)}
-              className="w-full h-full p-6 bg-transparent text-emerald-400 font-mono text-sm outline-none resize-none leading-relaxed selection:bg-emerald-500/20"
-              placeholder="-- Write your SQL query here..."
-              spellCheck={false}
-            />
-          </Card>
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4 min-h-0 overflow-hidden">
+          <div className="lg:col-span-2 flex flex-col gap-4 overflow-hidden">
+            <Card className="flex-1 relative border-2 border-primary/10 overflow-hidden bg-[#0a0a0a]">
+              <textarea
+                value={sqlText}
+                onChange={(e) => setSqlText(e.target.value)}
+                className="w-full h-full p-6 bg-transparent text-emerald-400 font-mono text-sm outline-none resize-none"
+                spellCheck={false}
+              />
+            </Card>
 
-          <Card className="overflow-hidden flex flex-col border-muted shadow-inner bg-background/50">
-            <div className="px-4 py-2 border-b bg-muted/30 flex justify-between items-center">
-              <span className="text-[10px] font-bold text-muted-foreground flex items-center gap-2 uppercase tracking-widest">
-                <FileJson className="w-3 h-3 text-primary" />
-                Query Results {results.length > 0 && `(${results.length})`}
-              </span>
-            </div>
-
-            <div className="flex-1 overflow-auto">
-              {error ? (
-                <div className="m-6 p-4 bg-destructive/5 border border-destructive/20 rounded-xl flex items-start gap-3 text-destructive animate-in fade-in zoom-in-95">
-                  <ShieldAlert className="w-5 h-5 mt-0.5 shrink-0" />
-                  <div className="space-y-1">
-                    <p className="text-sm font-bold">Access Denied</p>
-                    <p className="text-xs font-mono opacity-80">{error}</p>
-                  </div>
-                </div>
-              ) : results.length > 0 ? (
-                <table className="w-full text-left border-collapse min-w-max">
-                  <thead className="sticky top-0 bg-muted/90 backdrop-blur-md z-10">
-                    <tr>
-                      {Object.keys(results[0]).map((key) => (
-                        <th key={key} className="p-3 text-[10px] font-bold uppercase tracking-wider border-b border-border/50 text-muted-foreground bg-muted/50">
-                          {key}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {results.map((row, i) => (
-                      <tr key={i} className="hover:bg-primary/5 border-b border-border/5 last:border-0 transition-colors group">
-                        {Object.values(row).map((val: any, j) => (
-                          <td key={j} className="p-3 text-[11px] font-mono truncate max-w-[240px] text-foreground/80 group-hover:text-foreground">
-                            {val === null ? (
-                              <span className="text-muted-foreground/40 italic">null</span>
-                            ) : (
-                              val.toString()
-                            )}
-                          </td>
+            <Card className="h-2/5 overflow-hidden flex flex-col border-muted">
+              <div className="px-4 py-2 border-b bg-muted/30 flex justify-between items-center">
+                <span className="text-[10px] font-bold text-muted-foreground flex items-center gap-2 uppercase">
+                  <FileJson className="w-3 h-3 text-primary" /> Result Set {results.length > 0 && `(${results.length})`}
+                </span>
+              </div>
+              <div className="flex-1 overflow-auto">
+                {results.length > 0 ? (
+                  <table className="w-full text-left border-collapse min-w-max">
+                    <thead className="sticky top-0 bg-muted/90 backdrop-blur-md">
+                      <tr>
+                        {Object.keys(results[0]).map((key) => (
+                          <th key={key} className="p-3 text-[10px] font-bold uppercase border-b text-muted-foreground">{key}</th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : !isRunning ? (
-                <div className="h-full flex flex-col items-center justify-center text-muted-foreground opacity-20 grayscale">
-                  <Database className="w-16 h-16 mb-4" />
-                  <p className="text-sm font-medium uppercase tracking-widest">Awaiting Command</p>
+                    </thead>
+                    <tbody>
+                      {results.map((row, i) => (
+                        <tr key={i} className="hover:bg-primary/5 border-b border-border/5">
+                          {Object.values(row).map((val: any, j) => (
+                            <td key={j} className="p-3 text-[11px] font-mono">{val?.toString() || "null"}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="h-full flex items-center justify-center opacity-20"><Database className="w-12 h-12" /></div>
+                )}
+              </div>
+            </Card>
+          </div>
+
+          <div className="flex flex-col gap-4 overflow-hidden">
+            <Card className="flex-1 p-4 border-primary/20 bg-primary/5 flex flex-col gap-4">
+              <div className="flex items-center gap-2 text-primary font-bold text-sm uppercase tracking-widest">
+                <Network className="w-4 h-4" /> Graph Impact Analysis
+              </div>
+
+              {impactAnalysis ? (
+                <div className="space-y-4 animate-in slide-in-from-right-4">
+                  <div className="flex items-center justify-between p-3 bg-background rounded-lg border">
+                    <span className="text-xs text-muted-foreground">Graph Depth</span>
+                    <span className="text-xl font-bold text-primary">{impactAnalysis.depth}</span>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase">Schema Relations</p>
+                    <div className="flex flex-wrap gap-2">
+                      {impactAnalysis.relations.map((rel, i) => (
+                        <span key={i} className="px-2 py-1 bg-background border rounded text-[10px] font-mono">{rel}</span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                    <p className="text-[10px] font-bold text-amber-500 uppercase mb-1">Impact Summary</p>
+                    <p className="text-xs leading-relaxed">{impactAnalysis.impact}</p>
+                  </div>
                 </div>
               ) : (
-                <div className="h-full flex flex-col items-center justify-center">
-                  <Loader2 className="w-10 h-10 animate-spin text-primary/40" />
-                  <p className="text-xs mt-4 text-muted-foreground animate-pulse tracking-widest uppercase">Executing...</p>
+                <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
+                  <Network className="w-8 h-8 mb-2" />
+                  <p className="text-[10px] uppercase">Execute query to see<br />graph relationship depth</p>
                 </div>
               )}
-            </div>
-          </Card>
+            </Card>
+          </div>
         </div>
       </div>
     </DashboardLayout>
