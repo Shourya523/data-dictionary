@@ -23,7 +23,7 @@ import { authClient } from "@/src/components/landing/auth";
 import { Card } from "../../../components/ui/card";
 import { Loader2, Table2, Network } from "lucide-react";
 
-const FALLBACK_URI = process.env.NEXT_PUBLIC_FALLBACK_URI!;
+const HARDCODED_URI = "postgresql://neondb_owner:npg_RurVIE0FdTc1@ep-morning-morning-aiknmhke-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 
 const dagreGraph = new dagre.graphlib.Graph();
 dagreGraph.setDefaultEdgeLabel(() => ({}));
