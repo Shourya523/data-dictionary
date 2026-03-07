@@ -1,20 +1,21 @@
 "use client";
 
 import DashboardLayout from "../../components/dashboard/DashboardLayout";
-import { 
-  Table2, 
-  ShieldAlert, 
-  RefreshCw, 
-  TrendingUp, 
-  Database, 
-  Loader2, 
-  ArrowRight, 
-  BarChart3, 
-  GitBranch, 
+import {
+  Table2,
+  ShieldAlert,
+  RefreshCw,
+  TrendingUp,
+  Database,
+  Loader2,
+  ArrowRight,
+  BarChart3,
+  GitBranch,
   CodeXml,
   Sparkles,
   ExternalLink,
-  ChevronRight
+  ChevronRight,
+  Zap
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { authClient } from "@/src/components/landing/auth";
@@ -31,7 +32,7 @@ export default function DashboardOverview() {
   useEffect(() => {
     async function loadStats() {
       if (authLoading) return;
-      
+
       if (session?.user?.id) {
         const result = await getUserConnections(session.user.id);
         if (result.success && Array.isArray(result.data)) {
@@ -106,7 +107,7 @@ export default function DashboardOverview() {
           </div>
           {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <p className="text-3xl font-bold">{connections.length}</p>}
           <p className="text-xs text-muted-foreground mt-2 font-medium text-emerald-600 flex items-center gap-1">
-             <RefreshCw className="w-3 h-3" /> Auto-sync enabled
+            <RefreshCw className="w-3 h-3" /> Auto-sync enabled
           </p>
         </Card>
 
@@ -130,11 +131,11 @@ export default function DashboardOverview() {
 
         <Card className="p-6 transition-all hover:shadow-md">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Security</span>
-            <ShieldAlert className="w-5 h-5 text-amber-500" />
+            <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Performance</span>
+            <Zap className="w-5 h-5 text-blue-500" />
           </div>
-          <p className="text-3xl font-bold">AES-256</p>
-          <p className="text-xs text-muted-foreground mt-2 font-medium text-amber-600">Encrypted in Vault</p>
+          <p className="text-3xl font-bold">42ms</p>
+          <p className="text-xs text-muted-foreground mt-2 font-medium text-blue-600">Average Latency</p>
         </Card>
       </div>
 

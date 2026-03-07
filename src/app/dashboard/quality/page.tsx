@@ -8,7 +8,7 @@ import { Card } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Loader2, AlertTriangle, CheckCircle2, BarChart3, Sparkles, Database, Search } from "lucide-react";
 
-const FALLBACK_URI = "postgresql://neondb_owner:npg_RurVIE0FdTc1@ep-morning-morning-aiknmhke-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+const FALLBACK_URI = process.env.NEXT_PUBLIC_FALLBACK_URI!;
 
 export default function QualityPage() {
   const { data: session } = authClient.useSession();

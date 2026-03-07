@@ -6,7 +6,6 @@ import { eq, inArray } from "drizzle-orm";
 import { getSession } from "../lib/neo4j";
 
 // Define the fallback URI for guest mode
-const FALLBACK_URI = "postgresql://neondb_owner:npg_RurVIE0FdTc1@ep-morning-morning-aiknmhke-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
 
 export async function buildGraphForInference(connectionId: string) {
     if (!connectionId) return { success: false, error: "Connection ID required." };

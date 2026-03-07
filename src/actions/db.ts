@@ -389,7 +389,7 @@ export async function deleteConnection(connectionId: string, userId: string) {
 
 export async function runCustomQuery(connectionId: string, userId: string | undefined, sqlText: string) {
   try {
-    const FALLBACK_URI = "postgresql://neondb_owner:npg_RurVIE0FdTc1@ep-morning-morning-aiknmhke-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+    const FALLBACK_URI = process.env.NEXT_PUBLIC_FALLBACK_URI!;
     
     let uri = "";
     if (connectionId === "demo-neon-db" || !userId) {

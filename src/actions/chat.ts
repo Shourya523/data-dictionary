@@ -8,6 +8,7 @@ import { db } from "../db";
 import { schemaKnowledge, schemaDocImages } from "../db/schema";
 import { eq, and, inArray, asc } from "drizzle-orm";
 import { getSession } from "../lib/neo4j";
+import { getEntitySchemaContext } from "./graphQueries";
 
 const mxbai = new Mixedbread({ apiKey: process.env.MIXEDBREAD_API_KEY! });
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY! });
@@ -279,14 +280,14 @@ async function fetchEntityImages(connectionId: string, entities: string[]) {
 }
 
 // Helper: Inject citations into the answer
-function injectCitations(answer: string, imageReferences: { entity: string, images: string[] }[]) {
+function injectCitations(answer: string, imageReferences: { entity: string, images: string[], schema?: any }[]) {
     let finalAnswer = answer;
     const citations: any[] = [];
     let marker = 1;
 
     for (const ref of imageReferences) {
-        if (citations.length >= 5) break; // Limit to max 5 citations
-        if (ref.images.length === 0) continue; // Skip if no images
+        if (citations.length >= 8) break; // Limit to max 8 citations
+        if (ref.images.length === 0 && !ref.schema) continue; // Skip if no images AND no schema
 
         const regex = new RegExp(`\\b(${ref.entity})\\b`, 'i');
         const match = finalAnswer.match(regex);
@@ -300,10 +301,19 @@ function injectCitations(answer: string, imageReferences: { entity: string, imag
             finalAnswer += finalAnswer.endsWith('\n') ? `\n[${marker}] ${ref.entity} reference` : `\n\n[${marker}] ${ref.entity} reference`;
         }
 
+        // Extract PKs and FKs from schema
+        const pks = ref.schema?.columns?.filter((c: any) => c.isPrimaryKey).map((c: any) => c.name) || [];
+        const fks = ref.schema?.columns?.filter((c: any) => c.isForeignKey).map((c: any) => ({
+            column: c.name,
+            references: c.references
+        })) || [];
+
         citations.push({
             marker: marker,
             entity: ref.entity,
-            images: ref.images
+            images: ref.images,
+            pks,
+            fks
         });
         marker++;
     }
@@ -314,7 +324,25 @@ function injectCitations(answer: string, imageReferences: { entity: string, imag
 // Helper: Build the complete Chat API response
 async function buildFinalChatResponse(answer: string, connectionId: string, discoveredEntities: string[]) {
     const sortedEntities = Array.from(new Set(discoveredEntities)); // Deduplicate
-    const imageReferences = await fetchEntityImages(connectionId, sortedEntities);
-    const result = injectCitations(answer, imageReferences);
+
+    // Fetch both images and schema context in parallel
+    const [imageReferences, schemaContexts] = await Promise.all([
+        fetchEntityImages(connectionId, sortedEntities),
+        Promise.all(sortedEntities.map(entity => getEntitySchemaContext(entity, connectionId)))
+    ]);
+
+    // Merge schema context into imageReferences structure
+    const unifiedReferences = sortedEntities.map(entity => {
+        const imageRef = imageReferences.find(r => r.entity === entity);
+        const schemaRef = schemaContexts.find(s => s.tableName === entity);
+
+        return {
+            entity,
+            images: imageRef?.images || [],
+            schema: schemaRef
+        };
+    });
+
+    const result = injectCitations(answer, unifiedReferences);
     return result;
 }

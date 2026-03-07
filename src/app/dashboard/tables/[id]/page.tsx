@@ -16,8 +16,7 @@ interface TableInfo {
   columns: string[];
   rowCount: number;
 }
-
-const FALLBACK_URI = "postgresql://neondb_owner:npg_RurVIE0FdTc1@ep-morning-morning-aiknmhke-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+const FALLBACK_URI = process.env.NEXT_PUBLIC_FALLBACK_URI!;
 
 const DashboardTables = ({ params }: { params: Promise<{ id: string }> }) => {
   const { id } = use(params);
