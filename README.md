@@ -217,17 +217,6 @@ http://localhost:3000
 
 ---
 
-# 🎯 Why This Wins Hackathons
-
-✅ Solves real developer pain  
-✅ Works with both relational + graph databases  
-✅ AI integration  
-✅ Clean UI + visualization  
-✅ Practical enterprise use-case  
-✅ Scalable SaaS potential  
-
----
-
 # 🚀 Future Scope
 
 - Column-level lineage tracking  
