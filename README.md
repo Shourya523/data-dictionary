@@ -171,6 +171,7 @@ CREATE (p)-[:ACTED_IN {role:'Neo'}]->(m);
 | ORM | Drizzle ORM |
 | Auth | NextAuth + Google OAuth |
 | Databases | PostgreSQL, MySQL, Snowflake, Neo4j |
+|    LLM    | Gemini 3 Flash , MixedBread , Groq  |
 | Language | TypeScript |
 | Deployment | Vercel-ready |
 
