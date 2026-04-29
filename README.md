@@ -1,3 +1,5 @@
+![DataLens AI](public/schema_refs/5b21c2d1-ea7b-4436-919f-7d5b151ddb08/image.png)
+
 # 🚀 DataLens AI  
 ## ⚡ Turn Any Database Into Instant Intelligence
 
