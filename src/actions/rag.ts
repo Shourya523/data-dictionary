@@ -42,7 +42,7 @@ export async function syncAIDocumentation(connectionId: string) {
 
         // 3. Setup Gemini Model instance with strict parameters
         const model = genAI.getGenerativeModel({
-            model: "gemini-2.5-flash",
+            model: "gemini-3-flash",
             systemInstruction: `You are a senior enterprise data architect and technical documentation expert.
 
 Your task is to generate high-quality, professional database documentation in clean Markdown format.
@@ -276,7 +276,7 @@ export async function askAiAction(userQuestion: string, connectionId: string) {
             .join("\n");
 
         const model = genAI.getGenerativeModel({
-            model: "gemini-2.5-flash",
+            model: "gemini-3-flash",
             systemInstruction: `You are a PostgreSQL expert. Given a schema, write a query. 
             CRITICAL: Large dataset detected (500k+ rows). Always append 'LIMIT 100' 
             to SELECT statements to prevent timeouts.`
