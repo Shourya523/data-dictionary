@@ -1,5 +1,6 @@
 # 🚀 DataLens AI  
 ## ⚡ Turn Any Database Into Instant Intelligence
+![DataLens AI](public/landingpage.png)
 
 > Stop guessing your schema. Start understanding it.
 
